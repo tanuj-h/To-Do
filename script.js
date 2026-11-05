@@ -6,6 +6,7 @@ const THEME_KEY = "todo-theme";
 // The separate lists, in the order their tabs appear
 const LISTS = [
   { id: "today", name: "Today" },
+  { id: "tomorrow", name: "Tomorrow" },
   { id: "this-week", name: "This Week" },
   { id: "next-week", name: "Next Week" },
   { id: "this-month", name: "This Month" },
