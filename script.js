@@ -244,9 +244,227 @@ function positionTrack() {
   viewport.style.height = activePanel.offsetHeight + "px";
 }
 
+// ----- Progress panel -----
+
+// Which lists each bar counts
+const PERIODS = [
+  { name: "Today", lists: ["today"] },
+  { name: "This Week", lists: ["today", "tomorrow", "this-week"] },
+  { name: "This Month", lists: ["today", "tomorrow", "this-week", "next-week", "this-month"] },
+];
+
+const stats = document.getElementById("stats");
+const gaugeFill = document.getElementById("gauge-fill");
+const gaugePct = document.getElementById("gauge-pct");
+const gaugeDone = document.getElementById("gauge-done");
+const gaugeTotal = document.getElementById("gauge-total");
+const gaugeLabel = document.getElementById("gauge-label");
+const statBars = document.getElementById("stat-bars");
+const barParts = []; // one { pct, done, total, fill } per period
+
+function buildBars() {
+  for (const period of PERIODS) {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const head = document.createElement("div");
+    head.className = "bar-head";
+    const label = document.createElement("span");
+    label.textContent = period.name;
+    const value = document.createElement("span");
+    value.className = "bar-value";
+    const pct = document.createElement("span");
+    const done = document.createElement("span");
+    done.className = "roll";
+    const total = document.createElement("span");
+    total.className = "roll";
+    value.append(pct, "% · ", done, "/", total);
+    head.append(label, value);
+
+    const barTrack = document.createElement("div");
+    barTrack.className = "bar-track";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill";
+    barTrack.appendChild(fill);
+
+    row.append(head, barTrack);
+    statBars.appendChild(row);
+    barParts.push({ pct, done, total, fill });
+  }
+}
+
+// ----- Odometer for percentages -----
+// Each digit is a vertical strip 0-9 (plus a second 0 for wrapping) that
+// scrolls through the digits in between at a steady speed.
+
+const ODO_DIGITS = 3; // enough for 100
+const ODO_STEP_MS = 200; // time to scroll one digit; same for every column (9 steps ≈ 0.6s)
+
+function makeOdometer(el) {
+  el.classList.add("odo");
+  const cols = [];
+  for (let k = ODO_DIGITS - 1; k >= 0; k--) {
+    const col = document.createElement("span");
+    col.className = "odo-col";
+    // Invisible "0" gives the column its width and text baseline
+    const placeholder = document.createElement("span");
+    placeholder.className = "odo-ph";
+    placeholder.textContent = "0";
+    const strip = document.createElement("span");
+    strip.className = "odo-strip";
+    const cells = [];
+    for (let d = 0; d <= 10; d++) {
+      const cell = document.createElement("span");
+      cell.textContent = d % 10;
+      strip.appendChild(cell);
+      cells.push(cell);
+    }
+    col.append(placeholder, strip);
+    el.appendChild(col);
+    // cols[0] = ones, cols[1] = tens... p = strip position, blank = cell 0 shown empty
+    cols[k] = { col, strip, firstCell: cells[0], p: 0, blank: false };
+  }
+  return { el, cols, target: undefined, frame: 0 };
+}
+
+// Is digit column k a leading zero (shown blank, taking no space) for this value?
+function isLeading(value, k) {
+  return k > 0 && value < 10 ** k;
+}
+
+// Draws one column at strip position p (0-10; cell 10 is the wrap-around 0)
+function drawColumn(c) {
+  c.firstCell.textContent = c.blank ? " " : "0";
+  // A blank column grows in (or shrinks away) as it rolls between blank and 1
+  c.col.style.maxWidth = c.blank ? `${Math.min(1, c.p)}em` : "";
+  c.strip.style.transform = `translateY(${(-c.p * 100) / 11}%)`;
+}
+
+function setOdometerInstantly(odo, value) {
+  odo.cols.forEach((c, k) => {
+    c.blank = isLeading(value, k);
+    c.p = c.blank ? 0 : Math.floor(value / 10 ** k) % 10;
+    drawColumn(c);
+  });
+}
+
+function spinTo(el, target, animate = true) {
+  if (!el._odo) el._odo = makeOdometer(el);
+  const odo = el._odo;
+  cancelAnimationFrame(odo.frame);
+
+  if (odo.target === undefined || !animate || reduceMotion.matches) {
+    odo.target = target;
+    setOdometerInstantly(odo, target);
+    return;
+  }
+  if (target === odo.target) return;
+
+  // Every digit turns the same way (up when the number grows, down when it
+  // shrinks) and at the same speed, straight to its new digit. Digits with
+  // less distance to cover simply finish sooner.
+  const dir = target > odo.target ? 1 : -1;
+  odo.target = target;
+
+  const moves = odo.cols.map((c, k) => {
+    const endBlank = isLeading(target, k);
+    const endDigit = endBlank ? 0 : Math.floor(target / 10 ** k) % 10;
+
+    // A "0" sitting at cell 0 is the same as cell 10; use 10 when rolling down
+    if (dir < 0 && !c.blank && c.p < 0.001) c.p = 10;
+
+    let steps = dir > 0 ? (((endDigit - c.p) % 10) + 10) % 10 : (((c.p - endDigit) % 10) + 10) % 10;
+    // Same digit but going between blank and "0" (e.g. 5% -> 100%): full turn
+    if (steps < 0.001 && c.blank !== endBlank) steps = 10;
+
+    const move = { c, start: c.p, steps, endBlank };
+    c.blank = c.blank || endBlank; // keep cell 0 blank while it may be on screen
+    return move;
+  });
+
+  const startTime = performance.now();
+
+  const frame = (now) => {
+    const travelled = (now - startTime) / ODO_STEP_MS; // cells moved so far
+    let running = false;
+
+    for (const m of moves) {
+      const d = Math.min(m.steps, travelled);
+      if (d < m.steps) running = true;
+      let p = m.start + dir * d;
+      if (p > 10) p -= 10; // wrapped past 9 -> 0 going up
+      if (p < 0) p += 10; // wrapped past 0 -> 9 going down
+      m.c.p = p;
+
+      if (d >= m.steps) {
+        // Finished: settle on the plain digit
+        m.c.blank = m.endBlank;
+        if (m.c.p >= 10) m.c.p = 0;
+      }
+      drawColumn(m.c);
+    }
+
+    if (running) odo.frame = requestAnimationFrame(frame);
+  };
+  odo.frame = requestAnimationFrame(frame);
+}
+
+function progressFor(listIds) {
+  const relevant = tasks.filter((t) => listIds.includes(t.list));
+  const done = relevant.filter((t) => t.done).length;
+  const total = relevant.length;
+  return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
+}
+
+// Smoothly blends red -> yellow -> green as the percentage rises
+const COLOR_STOPS = [
+  [0, 0], // [percent, hue]
+  [30, 0], // red
+  [50, 45], // yellow
+  [65, 50],
+  [90, 125], // green
+  [100, 130],
+];
+
+function progressColor(pct) {
+  for (let i = 1; i < COLOR_STOPS.length; i++) {
+    const [p1, h1] = COLOR_STOPS[i - 1];
+    const [p2, h2] = COLOR_STOPS[i];
+    if (pct <= p2) {
+      const hue = h1 + ((pct - p1) / (p2 - p1)) * (h2 - h1);
+      return `hsl(${hue}, 75%, 50%)`;
+    }
+  }
+  return `hsl(130, 75%, 50%)`;
+}
+
+function renderStats() {
+  // Gauge: the list that's open
+  const g = progressFor([activeList]);
+  gaugeFill.style.strokeDashoffset = 100 - g.pct;
+  gaugeFill.style.stroke = progressColor(g.pct);
+  gaugeFill.style.opacity = g.pct > 0 ? 1 : 0; // avoid a stray dot at 0%
+  spinTo(gaugePct, g.pct);
+  rollTo(gaugeDone, g.done);
+  rollTo(gaugeTotal, g.total);
+  gaugeLabel.textContent = listName(activeList);
+
+  // Bars: today / this week / this month
+  PERIODS.forEach((period, i) => {
+    const p = progressFor(period.lists);
+    const part = barParts[i];
+    part.fill.style.width = p.pct + "%";
+    part.fill.style.background = progressColor(p.pct);
+    spinTo(part.pct, p.pct);
+    rollTo(part.done, p.done);
+    rollTo(part.total, p.total);
+  });
+}
+
 function render() {
   clearTimeout(reorderTimer);
   renderTabs();
+  renderStats();
   renderPanels();
   positionTrack();
   input.placeholder = `Add a task for ${listName(activeList)}...`;
@@ -285,6 +503,7 @@ function toggleTask(id, li) {
   // 1. Draw (or erase) the strike line on the existing row
   li.classList.toggle("done", task.done);
   renderTabs();
+  renderStats();
 
   // 2. Once the line has finished, slide tasks into their new order
   clearTimeout(reorderTimer);
@@ -370,13 +589,16 @@ applyTheme(document.documentElement.dataset.theme || "light");
 // First draw without animation, then turn animations on
 viewport.classList.add("no-animate");
 tabs.classList.add("no-animate");
+stats.classList.add("no-animate");
 buildTabs();
 buildPanels();
+buildBars();
 render();
 requestAnimationFrame(() => {
   requestAnimationFrame(() => {
     viewport.classList.remove("no-animate");
     tabs.classList.remove("no-animate");
+    stats.classList.remove("no-animate");
   });
 });
 

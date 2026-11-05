@@ -52,15 +52,209 @@ body {
   transition: background 0.2s, color 0.2s;
 }
 
-.app {
+/* Two columns: task list on the left, progress panel on the right */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 24px;
   width: 100%;
-  max-width: 820px;
+  max-width: 1164px;
+  align-self: flex-start;
+}
+
+.app,
+.stats {
   background: var(--card-bg);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--card-shadow);
-  padding: 32px 24px;
-  align-self: flex-start;
   transition: background 0.2s;
+}
+
+.app {
+  flex: 1 1 820px;
+  min-width: 0;
+  max-width: 820px;
+  padding: 32px 24px;
+}
+
+/* ----- Progress panel ----- */
+.stats {
+  flex: 0 0 320px;
+  padding: 28px 24px;
+  position: sticky;
+  top: 48px;
+}
+
+.stats-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.stats-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.gauge {
+  position: relative;
+  width: 220px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.gauge-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gauge-track,
+.gauge-fill {
+  fill: none;
+  stroke-width: 14;
+  stroke-linecap: round;
+}
+
+.gauge-track {
+  stroke: var(--border);
+}
+
+.gauge-fill {
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 100;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.65, 0, 0.35, 1),
+    stroke 0.6s ease, opacity 0.3s ease;
+}
+
+/* Percentage and count, centered inside the arc */
+.gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.gauge-pct {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.gauge-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Name of the open list, sitting in the gap at the bottom of the arc */
+.gauge-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6%;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Horizontal bars for today / this week / this month */
+.bars {
+  flex: 1;
+  min-width: 0;
+}
+
+.bar-row {
+  margin-top: 16px;
+}
+
+.bar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.9rem;
+}
+
+.bar-value {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.bar-track {
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  transition: width 0.6s cubic-bezier(0.65, 0, 0.35, 1), background 0.6s ease;
+}
+
+/* Narrower windows: panel moves above the list as a short strip */
+@media (max-width: 1220px) {
+  .layout {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .app,
+  .stats {
+    flex: none;
+    width: 100%;
+    max-width: 820px;
+  }
+
+  .stats {
+    order: -1;
+    position: static;
+    padding: 20px 24px;
+  }
+
+  .stats-body {
+    flex-direction: row;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .gauge {
+    width: 180px;
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  .bar-row:first-child {
+    margin-top: 0;
+  }
+}
+
+/* Phones: stack the gauge on top of the bars */
+@media (max-width: 560px) {
+  .stats-body {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .gauge {
+    margin: 0 auto;
+  }
+
+  .bars {
+    width: 100%;
+  }
+
+  .bar-row:first-child {
+    margin-top: 16px;
+  }
 }
 
 /* Header with title and theme toggle */
@@ -169,6 +363,33 @@ select {
   clip-path: inset(0 -4px);
 }
 
+/* Odometer: one clipped column per digit, each holding a 0-9 strip */
+.odo {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+}
+
+.odo-col {
+  position: relative;
+  display: inline-block;
+  min-width: 0;
+  clip-path: inset(0); /* clips without moving the text baseline */
+}
+
+.odo-ph {
+  visibility: hidden;
+}
+
+.odo-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+}
+
 .roll .num {
   grid-area: 1 / 1;
   transition: transform 0.3s ease, opacity 0.3s ease;
@@ -196,7 +417,9 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .tab,
   .tab-count,
-  .roll .num {
+  .roll .num,
+  .gauge-fill,
+  .bar-fill {
     transition: none;
   }
 }
@@ -269,7 +492,9 @@ select {
 .no-animate,
 .no-animate .list-track,
 .no-animate .tab,
-.no-animate .tab-count {
+.no-animate .tab-count,
+.no-animate .gauge-fill,
+.no-animate .bar-fill {
   transition: none !important;
 }
 
