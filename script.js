@@ -783,15 +783,31 @@ function playRay() {
   ray.classList.add("play");
 }
 
-// After the ray: the box glows with aurora colors while it's focused.
-// The background aurora switches on the first time this happens and then
-// stays on until the page is refreshed (it doesn't follow focus after that).
+// After the ray: the box glows with aurora colors while it's focused, and the
+// background lights go from relaxed to full. They stay full while you work
+// anywhere in the to-do list card, and relax again once you click or tab
+// outside it.
 const inputWrap = input.parentElement;
+const appFrame = document.querySelector(".app");
 
 function lightUp(on) {
   inputWrap.classList.toggle("lit", on);
   if (on) document.documentElement.classList.add("ambient-on");
 }
+
+function relaxLights() {
+  document.documentElement.classList.remove("ambient-on");
+}
+
+// The calendar pop-up lives outside the card in the page, but belongs to it
+const insideFrame = (el) => appFrame.contains(el) || cal.contains(el);
+
+document.addEventListener("pointerdown", (e) => {
+  if (!insideFrame(e.target)) relaxLights();
+});
+document.addEventListener("focusin", (e) => {
+  if (!insideFrame(e.target)) relaxLights();
+});
 
 ray.addEventListener("animationend", (e) => {
   // Two rects each run two animations; react once, when the lap's fade ends

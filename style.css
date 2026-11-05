@@ -21,7 +21,8 @@
   --aur-1: #3b82f6; /* blue */
   --aur-2: #8b5cf6; /* violet */
   --aur-3: #14b8a6; /* teal */
-  --aurora-opacity: 0.38;
+  --aurora-opacity: 0.12; /* relaxed */
+  --aurora-opacity-lit: 0.38; /* full */
   --halo-opacity: 0.45;
   --edge-opacity: 0.55;
   --tab-glow: rgba(59, 130, 246, 0.22);
@@ -49,7 +50,8 @@
   --aur-1: #3b82f6;
   --aur-2: #a855f7;
   --aur-3: #2dd4bf;
-  --aurora-opacity: 0.6;
+  --aurora-opacity: 0.18; /* relaxed */
+  --aurora-opacity-lit: 0.6;
   --halo-opacity: 0.7;
   --edge-opacity: 0.75;
   --tab-glow: rgba(96, 165, 250, 0.3);
@@ -80,13 +82,14 @@ body {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  opacity: 0; /* off until the add-task box is first focused */
-  transition: opacity 2.5s ease;
+  opacity: var(--aurora-opacity); /* relaxed level */
+  transition: opacity 1.5s ease;
 }
 
-/* Switched on (for good, until refresh) the first time the box lights up */
+/* Full brightness once the add-task box lights up, until you click
+   or tab outside the to-do list card */
 .ambient-on .aurora {
-  opacity: var(--aurora-opacity);
+  opacity: var(--aurora-opacity-lit);
 }
 
 .aurora span {
