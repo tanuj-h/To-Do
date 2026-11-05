@@ -298,7 +298,7 @@ function buildBars() {
 // scrolls through the digits in between at a steady speed.
 
 const ODO_DIGITS = 3; // enough for 100
-const ODO_STEP_MS = 200; // time to scroll one digit; same for every column (9 steps ≈ 0.6s)
+const ODO_STEP_MS = 150; // time to scroll one digit; same for every column (9 steps ≈ 0.6s)
 
 function makeOdometer(el) {
   el.classList.add("odo");
@@ -351,6 +351,8 @@ function setOdometerInstantly(odo, value) {
 function spinTo(el, target, animate = true) {
   if (!el._odo) el._odo = makeOdometer(el);
   const odo = el._odo;
+  // Already showing (or scrolling towards) this number: let it finish
+  if (target === odo.target) return;
   cancelAnimationFrame(odo.frame);
 
   if (odo.target === undefined || !animate || reduceMotion.matches) {
@@ -358,7 +360,6 @@ function spinTo(el, target, animate = true) {
     setOdometerInstantly(odo, target);
     return;
   }
-  if (target === odo.target) return;
 
   // Every digit turns the same way (up when the number grows, down when it
   // shrinks) and at the same speed, straight to its new digit. Digits with
@@ -385,7 +386,10 @@ function spinTo(el, target, animate = true) {
   const startTime = performance.now();
 
   const frame = (now) => {
-    const travelled = (now - startTime) / ODO_STEP_MS; // cells moved so far
+    // Cells moved so far. The browser's frame time can be slightly earlier than
+    // startTime, so clamp at 0 or the first frame would nudge digits backwards
+    // (a digit at 0 would wrap round and flash a 9 or 0).
+    const travelled = Math.max(0, (now - startTime) / ODO_STEP_MS);
     let running = false;
 
     for (const m of moves) {
