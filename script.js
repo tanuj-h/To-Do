@@ -783,12 +783,14 @@ function playRay() {
   ray.classList.add("play");
 }
 
-// After the ray: the box glows with aurora colors and the background lights brighten
+// After the ray: the box glows with aurora colors while it's focused.
+// The background aurora switches on the first time this happens and then
+// stays on until the page is refreshed (it doesn't follow focus after that).
 const inputWrap = input.parentElement;
 
 function lightUp(on) {
   inputWrap.classList.toggle("lit", on);
-  document.documentElement.classList.toggle("ambient-on", on);
+  if (on) document.documentElement.classList.add("ambient-on");
 }
 
 ray.addEventListener("animationend", (e) => {
@@ -823,7 +825,6 @@ let formDate = null; // the date chosen in the form's chip
 const formPicker = createDatePicker((date) => {
   formDate = date;
   renderForm();
-  focusInputQuietly();
 });
 formPicker.wrap.classList.add("form-picker");
 formPicker.chip.title = "Choose a date";
@@ -860,7 +861,8 @@ function switchList(id) {
   formDate = null; // each list starts with its own default date
   saveActiveList();
   render();
-  focusInputQuietly();
+  // Focus stays on the tab you clicked; the add-task box only lights up
+  // when you click or tab into it yourself
 }
 
 function addTask(text) {
@@ -1016,6 +1018,14 @@ buildTabs();
 buildPanels();
 buildBars();
 render();
+
+// Start with nothing focused, even if the browser tries to restore focus to
+// the box after a refresh or when coming back with the Back button
+function startUnfocused() {
+  if (document.activeElement === input) input.blur();
+}
+startUnfocused();
+window.addEventListener("pageshow", startUnfocused);
 requestAnimationFrame(() => {
   requestAnimationFrame(() => {
     viewport.classList.remove("no-animate");
