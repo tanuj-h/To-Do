@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My To-Do List</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script>
     // Apply the saved (or system) theme before the page paints, to avoid a flash
@@ -37,10 +40,10 @@
       <button type="submit">Add</button>
     </form>
 
-    <ul id="task-list" class="task-list"></ul>
-
-    <p id="empty-message" class="empty-message">No tasks yet. Add one above!</p>
-    <p id="task-count" class="task-count"></p>
+    <!-- All lists sit side by side in the track; the viewport shows one at a time -->
+    <div id="list-viewport" class="list-viewport">
+      <div id="list-track" class="list-track"></div>
+    </div>
   </main>
 
   <script src="script.js"></script>

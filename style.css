@@ -42,7 +42,7 @@
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Outfit", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -54,7 +54,7 @@ body {
 
 .app {
   width: 100%;
-  max-width: 520px;
+  max-width: 760px;
   background: var(--card-bg);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--card-shadow);
@@ -72,7 +72,17 @@ body {
 }
 
 h1 {
-  font-size: 1.75rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Buttons and inputs don't inherit the page font by default */
+button,
+input,
+select {
+  font-family: inherit;
 }
 
 .theme-toggle {
@@ -96,15 +106,20 @@ h1 {
   display: flex;
   gap: 6px;
   margin-bottom: 20px;
+  /* On very narrow screens, let tabs scroll sideways without a visible bar */
   overflow-x: auto;
-  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.list-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
   white-space: nowrap;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
   padding: 8px 12px;
   font-size: 0.9rem;
   background: none;
@@ -125,13 +140,65 @@ h1 {
   color: #ffffff;
 }
 
+/* The badge is always there; when empty it collapses to zero width,
+   so it can grow and shrink smoothly instead of popping in */
 .tab-count {
   font-size: 0.75rem;
-  min-width: 20px;
-  padding: 1px 6px;
+  text-align: center;
+  overflow: hidden;
+  box-sizing: border-box;
   border-radius: 999px;
   background: var(--toggle-hover);
   color: var(--text);
+  max-width: 0;
+  min-width: 0;
+  padding: 1px 0;
+  margin-left: 0;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: max-width 0.3s ease, min-width 0.3s ease, padding 0.3s ease,
+    margin-left 0.3s ease, opacity 0.3s ease, transform 0.3s ease,
+    background 0.2s, color 0.2s;
+}
+
+/* Rolling numbers: the old and new number stack in the same spot,
+   so one can roll out as the next rolls in */
+.roll {
+  display: inline-grid;
+  /* Clip numbers outside the box without moving the text baseline */
+  clip-path: inset(0 -4px);
+}
+
+.roll .num {
+  grid-area: 1 / 1;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.roll .num.below {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+.roll .num.above {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+
+.tab-count.visible {
+  max-width: 48px;
+  min-width: 20px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .tab-count,
+  .roll .num {
+    transition: none;
+  }
 }
 
 .tab.active .tab-count {
@@ -180,6 +247,39 @@ h1 {
   background: var(--accent-hover);
 }
 
+/* Sliding lists: the track holds every list side by side and slides
+   left/right so the active one shows through the viewport */
+.list-viewport {
+  overflow: hidden;
+  transition: height 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.list-track {
+  display: flex;
+  align-items: flex-start;
+  transition: transform 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.list-panel {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+/* Skip animation on first load */
+.no-animate,
+.no-animate .list-track,
+.no-animate .tab,
+.no-animate .tab-count {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list-viewport,
+  .list-track {
+    transition: none;
+  }
+}
+
 /* Task list */
 .task-list {
   list-style: none;
@@ -206,9 +306,27 @@ h1 {
   word-break: break-word;
 }
 
-.task-item.done .task-text {
-  text-decoration: line-through;
+/* The strike-through is a line drawn as a background that grows
+   from left to right, so it can animate (text-decoration can't) */
+.task-label {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 55%;
+  background-size: 0% 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size 0.35s ease, color 0.35s ease;
+}
+
+.task-item.done .task-label {
+  background-size: 100% 2px;
   color: var(--text-done);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-label {
+    transition: none;
+  }
 }
 
 .move-select {
