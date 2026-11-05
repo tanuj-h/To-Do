@@ -15,6 +15,17 @@
   --danger: #ef4444;
   --danger-bg: #fee2e2;
   --toggle-hover: #e4e7eb;
+  --ray-core: #3b82f6;
+  --ray-glow: rgba(59, 130, 246, 0.55);
+  /* Ambient light */
+  --aur-1: #3b82f6; /* blue */
+  --aur-2: #8b5cf6; /* violet */
+  --aur-3: #14b8a6; /* teal */
+  --aurora-opacity: 0.38;
+  --halo-opacity: 0.45;
+  --edge-opacity: 0.55;
+  --tab-glow: rgba(59, 130, 246, 0.22);
+  --card-glass: rgba(255, 255, 255, 0.78);
 }
 
 [data-theme="dark"] {
@@ -33,6 +44,16 @@
   --danger: #f87171;
   --danger-bg: #3f1d1d;
   --toggle-hover: #374151;
+  --ray-core: #bfe3ff;
+  --ray-glow: rgba(96, 165, 250, 0.85);
+  --aur-1: #3b82f6;
+  --aur-2: #a855f7;
+  --aur-3: #2dd4bf;
+  --aurora-opacity: 0.6;
+  --halo-opacity: 0.7;
+  --edge-opacity: 0.75;
+  --tab-glow: rgba(96, 165, 250, 0.3);
+  --card-glass: rgba(31, 41, 55, 0.72);
 }
 
 * {
@@ -52,8 +73,68 @@ body {
   transition: background 0.2s, color 0.2s;
 }
 
+/* ----- Aurora background: soft colored lights drifting behind the cards ----- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0; /* off until the add-task box is first focused */
+  transition: opacity 2.5s ease;
+}
+
+/* Switched on (for good, until refresh) the first time the box lights up */
+.ambient-on .aurora {
+  opacity: var(--aurora-opacity);
+}
+
+.aurora span {
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+}
+
+.aurora span:nth-child(1) {
+  top: -25vmax;
+  left: -15vmax;
+  background: radial-gradient(circle, var(--aur-1), transparent 65%);
+  animation: drift-1 28s ease-in-out infinite alternate;
+}
+
+.aurora span:nth-child(2) {
+  bottom: -30vmax;
+  right: -20vmax;
+  background: radial-gradient(circle, var(--aur-2), transparent 65%);
+  animation: drift-2 34s ease-in-out infinite alternate;
+}
+
+.aurora span:nth-child(3) {
+  top: 25%;
+  left: 30%;
+  width: 45vmax;
+  height: 45vmax;
+  background: radial-gradient(circle, var(--aur-3), transparent 65%);
+  animation: drift-3 24s ease-in-out infinite alternate;
+}
+
+@keyframes drift-1 {
+  to { transform: translate(18vmax, 10vmax) scale(1.15); }
+}
+
+@keyframes drift-2 {
+  to { transform: translate(-16vmax, -12vmax) scale(1.1); }
+}
+
+@keyframes drift-3 {
+  to { transform: translate(-14vmax, 8vmax) scale(0.85); }
+}
+
 /* Two columns: task list on the left, progress panel on the right */
 .layout {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -63,15 +144,60 @@ body {
   align-self: flex-start;
 }
 
+/* Cards are frosted glass, so the aurora glows softly through them */
 .app,
 .stats {
-  background: var(--card-bg);
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--card-shadow);
   transition: background 0.2s;
 }
 
+/* Card edge light: a thin band of color slowly circling each card's edge */
+@property --edge-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.app::before,
+.stats::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px; /* the ring's thickness */
+  background: conic-gradient(
+    from var(--edge-angle),
+    transparent 0deg,
+    var(--aur-1) 50deg,
+    transparent 110deg,
+    transparent 180deg,
+    var(--aur-2) 230deg,
+    transparent 290deg
+  );
+  /* Show only the 1px ring, not the middle */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: var(--edge-opacity);
+  animation: edge-spin 14s linear infinite;
+  pointer-events: none;
+}
+
+.stats::before {
+  animation-duration: 18s;
+  animation-direction: reverse;
+}
+
+@keyframes edge-spin {
+  to { --edge-angle: 360deg; }
+}
+
 .app {
+  position: relative;
   flex: 1 1 820px;
   min-width: 0;
   max-width: 820px;
@@ -109,6 +235,7 @@ body {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible; /* let the glow spill past the edges */
 }
 
 .gauge-track,
@@ -125,8 +252,20 @@ body {
 .gauge-fill {
   stroke-dasharray: 100 100;
   stroke-dashoffset: 100;
+  /* Glows in its own color (set from script.js) */
+  filter: drop-shadow(0 0 6px var(--gauge-color, transparent));
   transition: stroke-dashoffset 0.6s cubic-bezier(0.65, 0, 0.35, 1),
-    stroke 0.6s ease, opacity 0.3s ease;
+    stroke 0.6s ease, opacity 0.3s ease, filter 0.6s ease;
+}
+
+/* A list at 100%: the glow breathes gently */
+.gauge.complete .gauge-fill {
+  animation: gauge-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes gauge-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--gauge-color)); }
+  50% { filter: drop-shadow(0 0 16px var(--gauge-color)) drop-shadow(0 0 4px var(--gauge-color)); }
 }
 
 /* Percentage and count, centered inside the arc */
@@ -190,14 +329,15 @@ body {
   margin-top: 6px;
   border-radius: 999px;
   background: var(--border);
-  overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
   width: 0;
   border-radius: inherit;
-  transition: width 0.6s cubic-bezier(0.65, 0, 0.35, 1), background 0.6s ease;
+  box-shadow: 0 0 10px var(--bar-color, transparent);
+  transition: width 0.6s cubic-bezier(0.65, 0, 0.35, 1), background 0.6s ease,
+    box-shadow 0.6s ease;
 }
 
 /* Narrower windows: panel moves above the list as a short strip */
@@ -216,7 +356,7 @@ body {
 
   .stats {
     order: -1;
-    position: static;
+    position: relative; /* not sticky here, but still holds its edge light */
     padding: 20px 24px;
   }
 
@@ -297,9 +437,13 @@ select {
 
 /* List tabs */
 .list-tabs {
+  position: relative;
   display: flex;
   gap: 6px;
-  margin-bottom: 20px;
+  /* Extra room inside (cancelled by the negative margin) so the
+     active tab's glow isn't clipped by the sideways scrolling */
+  padding: 12px;
+  margin: -12px -12px 8px;
   /* On very narrow screens, let tabs scroll sideways without a visible bar */
   overflow-x: auto;
   scrollbar-width: none;
@@ -309,7 +453,21 @@ select {
   display: none;
 }
 
+/* Soft light under the active tab; slides to the new tab when you switch */
+.tab-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 999px;
+  box-shadow: 0 0 12px 0 var(--tab-glow);
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.65, 0, 0.35, 1),
+    width 0.45s cubic-bezier(0.65, 0, 0.35, 1), height 0.45s ease;
+}
+
 .tab {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   white-space: nowrap;
@@ -437,6 +595,8 @@ select {
 }
 
 .task-form input {
+  position: relative;
+  z-index: 1;
   flex: 1;
   padding: 12px 14px;
   font-size: 1rem;
@@ -445,18 +605,135 @@ select {
   border: 1px solid var(--input-border);
   border-radius: 8px;
   outline: none;
+  transition: border-color 0.6s ease;
 }
 
 .task-form input::placeholder {
   color: var(--text-muted);
 }
 
-.task-form input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+/* No blue focus ring: the light ray, then the aurora glow, show focus instead */
+.input-wrap.lit input {
+  border-color: transparent;
 }
 
-.task-form button {
+/* Aurora glow around the box, which fades in once the ray finishes its lap */
+.input-wrap::before,
+.input-wrap::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 9px;
+  background: linear-gradient(90deg, var(--aur-1), var(--aur-2), var(--aur-3), var(--aur-1));
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  animation: aurora-flow 6s linear infinite;
+  animation-play-state: paused;
+}
+
+/* Soft blurred halo behind the box */
+.input-wrap::before {
+  inset: -3px;
+  z-index: 0;
+  filter: blur(10px);
+}
+
+/* Crisp 1.5px colored border on top */
+.input-wrap::after {
+  inset: 0;
+  z-index: 2;
+  padding: 1.5px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+.input-wrap.lit::before {
+  opacity: var(--halo-opacity);
+}
+
+.input-wrap.lit::after {
+  opacity: 1;
+}
+
+.input-wrap.lit::before,
+.input-wrap.lit::after {
+  animation-play-state: running;
+}
+
+@keyframes aurora-flow {
+  to { background-position: 200% 0; }
+}
+
+/* ----- Light ray around the add-task box ----- */
+.input-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.input-wrap input {
+  min-width: 0;
+}
+
+.ray {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ray rect {
+  fill: none;
+  stroke-linecap: round;
+  /* One short dash that travels the full outline */
+  stroke-dasharray: 16 84;
+  stroke-dashoffset: 0;
+  opacity: 0;
+}
+
+.ray-glow {
+  stroke: var(--ray-glow);
+  stroke-width: 6;
+  filter: blur(4px);
+}
+
+.ray-core {
+  stroke: var(--ray-core);
+  stroke-width: 2;
+}
+
+.ray.play rect {
+  animation:
+    ray-run 1.4s cubic-bezier(0.45, 0, 0.25, 1) forwards,
+    ray-fade 1.4s ease forwards;
+}
+
+@keyframes ray-run {
+  to {
+    stroke-dashoffset: -100; /* one full lap */
+  }
+}
+
+@keyframes ray-fade {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; } /* fades out as it finishes the lap */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ray {
+    display: none;
+  }
+}
+
+.task-form button[type="submit"] {
   padding: 12px 20px;
   font-size: 1rem;
   background: var(--accent);
@@ -466,8 +743,31 @@ select {
   cursor: pointer;
 }
 
-.task-form button:hover {
+.task-form button[type="submit"]:hover {
   background: var(--accent-hover);
+}
+
+/* Date chip in the add form: only for This Week / Next Week / This Month.
+   It slides open and shut instead of popping in. */
+.form-picker {
+  max-width: 220px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-width 0.3s ease, opacity 0.3s ease, margin-left 0.3s ease;
+}
+
+.form-picker.collapsed {
+  max-width: 0;
+  opacity: 0;
+  margin-left: -8px; /* cancel the form's gap so the input fills the space */
+}
+
+.form-picker .date-chip {
+  height: 100%;
+  font-size: 0.95rem;
+  padding: 0 14px;
+  border-radius: 8px;
+  color: var(--text);
 }
 
 /* Sliding lists: the track holds every list side by side and slides
@@ -494,8 +794,57 @@ select {
 .no-animate .tab,
 .no-animate .tab-count,
 .no-animate .gauge-fill,
-.no-animate .bar-fill {
+.no-animate .bar-fill,
+.no-animate .tab-glow {
   transition: none !important;
+}
+
+/* ----- Completion sparkle: dots of light bursting from a ticked checkbox ----- */
+.sparkle-burst {
+  position: fixed;
+  z-index: 50;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.sparkle-burst span {
+  position: absolute;
+  left: calc(var(--s) / -2);
+  top: calc(var(--s) / -2);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 6px var(--c);
+  animation: sparkle 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes sparkle {
+  from {
+    transform: rotate(var(--a)) translateX(4px) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--a)) translateX(var(--d)) scale(0.2);
+    opacity: 0;
+  }
+}
+
+/* Turn the ambient motion off for people who prefer less animation */
+@media (prefers-reduced-motion: reduce) {
+  .aurora span,
+  .app::before,
+  .stats::before,
+  .input-wrap::before,
+  .input-wrap::after,
+  .gauge.complete .gauge-fill {
+    animation: none;
+  }
+
+  .tab-glow {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -554,19 +903,153 @@ select {
   }
 }
 
-.move-select {
-  font-size: 0.8rem;
-  padding: 4px 6px;
-  background: var(--input-bg);
-  color: var(--text-muted);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  cursor: pointer;
+/* Date chips: a pill showing the date; the real date input hides beneath it */
+.date-picker {
+  position: relative;
+  display: inline-flex;
   flex-shrink: 0;
 }
 
-.move-select:hover {
+.date-chip {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  white-space: nowrap;
+  background: var(--input-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.date-chip:hover {
   color: var(--text);
+  background: var(--toggle-hover);
+}
+
+.date-chip.overdue {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: transparent;
+}
+
+.task-item.done .date-chip {
+  opacity: 0.6;
+}
+
+/* ----- Custom calendar pop-up ----- */
+.cal {
+  position: absolute;
+  z-index: 100;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px var(--card-shadow);
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.cal.above {
+  transform-origin: bottom right;
+  transform: translateY(6px) scale(0.97);
+}
+
+.cal.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.cal-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-wd {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  padding-bottom: 4px;
+}
+
+.cal-day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+
+.cal-day:hover:not(:disabled) {
+  background: var(--toggle-hover);
+  transform: scale(1.06);
+}
+
+.cal-day.today {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.cal-day.selected,
+.cal-day.selected:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.cal-day:disabled {
+  color: var(--text-done);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cal-day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Short month name above the 1st of a month */
+.cal-mon {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.cal-day.selected .cal-mon {
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal,
+  .cal-day {
+    transition: none;
+  }
 }
 
 .delete-btn {

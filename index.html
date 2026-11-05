@@ -21,6 +21,9 @@
   </script>
 </head>
 <body>
+  <!-- Ambient aurora lights drifting behind everything -->
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
   <div class="layout">
   <main class="app">
     <header class="app-header">
@@ -31,13 +34,20 @@
     <nav id="list-tabs" class="list-tabs" aria-label="Task lists"></nav>
 
     <form id="task-form" class="task-form">
-      <input
-        type="text"
-        id="task-input"
-        placeholder="What needs to be done?"
-        autocomplete="off"
-        required
-      >
+      <span class="input-wrap">
+        <input
+          type="text"
+          id="task-input"
+          placeholder="What needs to be done?"
+          autocomplete="off"
+          required
+        >
+        <!-- Light ray that runs once around the box when you click into it -->
+        <svg id="input-ray" class="ray" aria-hidden="true">
+          <rect class="ray-glow" pathLength="100" />
+          <rect class="ray-core" pathLength="100" />
+        </svg>
+      </span>
       <button type="submit">Add</button>
     </form>
 

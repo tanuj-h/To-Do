@@ -3,34 +3,142 @@ const STORAGE_KEY = "todo-tasks";
 const ACTIVE_LIST_KEY = "todo-active-list";
 const THEME_KEY = "todo-theme";
 
-// The separate lists, in the order their tabs appear
+// ----- Dates -----
+// Dates are stored as "YYYY-MM-DD" text in local time. Text in that shape
+// sorts and compares in date order, so "<" and ">" work directly.
+
+function dateKey(d) {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function parseKey(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+// The date ranges the lists are built from. Recomputed on every render,
+// so the lists roll over by themselves when the day changes.
+function getRanges() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const weekStart = addDays(today, -today.getDay()); // weeks start on Sunday
+  return {
+    today: dateKey(today),
+    tomorrow: dateKey(addDays(today, 1)),
+    weekStart: dateKey(weekStart),
+    weekEnd: dateKey(addDays(weekStart, 6)),
+    nextWeekStart: dateKey(addDays(weekStart, 7)),
+    nextWeekEnd: dateKey(addDays(weekStart, 13)),
+    monthStart: dateKey(new Date(today.getFullYear(), today.getMonth(), 1)),
+    monthEnd: dateKey(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+  };
+}
+
+let R = getRanges();
+
+const isOverdue = (t) => !t.done && t.date < R.today;
+
+// The latest date any task can be given
+const maxDate = () => (R.monthEnd > R.nextWeekEnd ? R.monthEnd : R.nextWeekEnd);
+
+// "Today", "Tomorrow" or e.g. "Thu 13 Nov"
+function formatDate(key) {
+  if (key === R.today) return "Today";
+  if (key === R.tomorrow) return "Tomorrow";
+  return parseKey(key).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
+// The lists, in the order their tabs appear. Each one is a view onto tasks by
+// date, so a task can show in several lists (Today's tasks are also in This
+// Week and This Month). "pick" lists let you choose a date when adding.
 const LISTS = [
-  { id: "today", name: "Today" },
-  { id: "tomorrow", name: "Tomorrow" },
-  { id: "this-week", name: "This Week" },
-  { id: "next-week", name: "Next Week" },
-  { id: "this-month", name: "This Month" },
-  { id: "next-month", name: "Next Month" },
+  {
+    id: "today",
+    name: "Today",
+    includes: (t) => t.date === R.today || isOverdue(t),
+    range: () => ({ min: R.today, max: R.today }),
+  },
+  {
+    id: "tomorrow",
+    name: "Tomorrow",
+    includes: (t) => t.date === R.tomorrow,
+    range: () => ({ min: R.tomorrow, max: R.tomorrow }),
+  },
+  {
+    id: "this-week",
+    name: "This Week",
+    pick: true,
+    includes: (t) =>
+      (t.date >= R.weekStart && t.date <= R.weekEnd) || t.date === R.tomorrow || isOverdue(t),
+    range: () => ({ min: R.today, max: R.weekEnd }),
+  },
+  {
+    id: "next-week",
+    name: "Next Week",
+    pick: true,
+    includes: (t) => t.date >= R.nextWeekStart && t.date <= R.nextWeekEnd,
+    range: () => ({ min: R.nextWeekStart, max: R.nextWeekEnd }),
+  },
+  {
+    id: "this-month",
+    name: "This Month",
+    pick: true,
+    // Everything: this month, anything later, and unfinished overdue tasks
+    includes: (t) => t.date >= R.monthStart || isOverdue(t),
+    range: () => ({ min: R.today, max: R.monthEnd }),
+  },
 ];
+
+const listById = (id) => LISTS.find((l) => l.id === id);
 
 const form = document.getElementById("task-form");
 const input = document.getElementById("task-input");
+const addBtn = form.querySelector('button[type="submit"]');
 const tabs = document.getElementById("list-tabs");
 const viewport = document.getElementById("list-viewport");
 const track = document.getElementById("list-track");
 
-// Each task looks like: { id: number, text: string, done: boolean, list: string }
+// Each task looks like:
+// { id: number, text: string, done: boolean, date: "YYYY-MM-DD", completedAt: ISO string | null }
 let tasks = loadTasks();
 let activeList = loadActiveList();
 
 // ----- Saving and loading -----
 
+// Older tasks belonged to a named list instead of a date; give them a date from it
+function dateForOldList(list) {
+  switch (list) {
+    case "tomorrow":
+      return R.tomorrow;
+    case "this-week":
+      return R.weekEnd;
+    case "next-week":
+      return R.nextWeekStart;
+    case "this-month":
+    case "next-month":
+      return R.monthEnd;
+    default:
+      return R.today;
+  }
+}
+
 function loadTasks() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : [];
-    // Tasks from before lists existed go into "Today"
-    return parsed.map((t) => ({ ...t, list: t.list || "today" }));
+    return parsed.map(({ list, ...t }) => ({
+      ...t,
+      date: t.date || dateForOldList(list),
+      completedAt: t.completedAt ?? null,
+    }));
   } catch {
     return [];
   }
@@ -61,13 +169,198 @@ function saveActiveList() {
 // ----- Drawing the page -----
 
 function listName(id) {
-  return LISTS.find((l) => l.id === id).name;
+  return listById(id).name;
 }
+
+// Tasks shown in a list: unfinished first, then by date, then in the order added
+function tasksIn(listId) {
+  const l = listById(listId);
+  return tasks
+    .filter(l.includes)
+    .sort((a, b) => Number(a.done) - Number(b.done) || a.date.localeCompare(b.date) || a.id - b.id);
+}
+
+// A date chip: shows a date as text and opens the calendar below when clicked
+function createDatePicker(onPick) {
+  const wrap = document.createElement("span");
+  wrap.className = "date-picker";
+
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "date-chip";
+
+  const state = { value: null, min: null, max: null };
+  chip.addEventListener("click", () => toggleCalendar(chip, state, onPick));
+
+  wrap.append(chip);
+  return {
+    wrap,
+    chip,
+    set(value, min, max, label) {
+      Object.assign(state, { value, min, max });
+      chip.textContent = label;
+    },
+  };
+}
+
+// ----- Custom calendar -----
+// One shared pop-up. It only shows the weeks that contain choosable days:
+// a single row for This Week or Next Week, a few rows for This Month.
+// Days outside the allowed range are shown faded and can't be picked.
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+  "August", "September", "October", "November", "December"];
+
+const cal = document.createElement("div");
+cal.className = "cal";
+cal.setAttribute("role", "dialog");
+cal.setAttribute("aria-label", "Choose a date");
+cal.hidden = true;
+document.body.appendChild(cal);
+
+let calAnchor = null; // the chip the calendar is open for
+let calHideTimer = null;
+
+// "November 2026", "November – December 2026" or "December 2026 – January 2027"
+function calTitle(min, max) {
+  const a = parseKey(min);
+  const b = parseKey(max);
+  if (a.getFullYear() !== b.getFullYear()) {
+    return `${MONTHS[a.getMonth()]} ${a.getFullYear()} – ${MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+  }
+  if (a.getMonth() !== b.getMonth()) {
+    return `${MONTHS[a.getMonth()]} – ${MONTHS[b.getMonth()]} ${a.getFullYear()}`;
+  }
+  return `${MONTHS[a.getMonth()]} ${a.getFullYear()}`;
+}
+
+function toggleCalendar(chip, { value, min, max }, onPick) {
+  if (calAnchor === chip) {
+    closeCalendar();
+    return;
+  }
+  closeCalendar(true);
+  clearTimeout(calHideTimer);
+  calAnchor = chip;
+
+  const title = document.createElement("div");
+  title.className = "cal-title";
+  title.textContent = calTitle(min, max);
+
+  const grid = document.createElement("div");
+  grid.className = "cal-grid";
+  for (const wd of ["S", "M", "T", "W", "T", "F", "S"]) {
+    const cell = document.createElement("span");
+    cell.className = "cal-wd";
+    cell.textContent = wd;
+    grid.appendChild(cell);
+  }
+
+  // From the Sunday on or before min, to the Saturday on or after max
+  const first = parseKey(min);
+  const start = addDays(first, -first.getDay());
+  const last = parseKey(max);
+  const end = addDays(last, 6 - last.getDay());
+
+  let selectedBtn = null;
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const key = dateKey(d);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cal-day";
+    btn.disabled = key < min || key > max;
+    btn.classList.toggle("today", key === R.today);
+    btn.classList.toggle("selected", key === value);
+    btn.setAttribute("aria-label", parseKey(key).toDateString());
+
+    // Mark the 1st of a month with the month's short name, so weeks that
+    // cross into the next month are clear
+    if (d.getDate() === 1) {
+      const mon = document.createElement("span");
+      mon.className = "cal-mon";
+      mon.textContent = MONTHS[d.getMonth()].slice(0, 3);
+      btn.appendChild(mon);
+    }
+    btn.append(String(d.getDate()));
+
+    btn.addEventListener("click", () => {
+      closeCalendar();
+      chip.focus();
+      onPick(key);
+    });
+    grid.appendChild(btn);
+    if (key === value) selectedBtn = btn;
+  }
+
+  cal.replaceChildren(title, grid);
+  cal.hidden = false;
+  positionCalendar();
+
+  // Next frame: fade and slide in
+  requestAnimationFrame(() => cal.classList.add("open"));
+  (selectedBtn || grid.querySelector(".cal-day:not(:disabled)"))?.focus({ preventScroll: true });
+}
+
+// Below the chip, lined up with its right edge; above it if there's no room below
+function positionCalendar() {
+  const r = calAnchor.getBoundingClientRect();
+  const w = cal.offsetWidth;
+  const h = cal.offsetHeight;
+  const margin = 16;
+
+  let left = r.right - w;
+  left = Math.max(margin, Math.min(left, window.innerWidth - w - margin));
+  let top = r.bottom + 8;
+  const flip = top + h > window.innerHeight - margin && r.top - 8 - h > margin;
+  if (flip) top = r.top - 8 - h;
+
+  cal.classList.toggle("above", flip);
+  cal.style.left = `${left + window.scrollX}px`;
+  cal.style.top = `${top + window.scrollY}px`;
+}
+
+function closeCalendar(instant = false) {
+  if (!calAnchor) return;
+  calAnchor = null;
+  cal.classList.remove("open");
+  clearTimeout(calHideTimer);
+  if (instant || reduceMotion.matches) cal.hidden = true;
+  else calHideTimer = setTimeout(() => (cal.hidden = true), 200);
+}
+
+// Close when clicking elsewhere, pressing Escape, or resizing the window
+document.addEventListener("pointerdown", (e) => {
+  if (calAnchor && !cal.contains(e.target) && !calAnchor.contains(e.target)) closeCalendar();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && calAnchor) {
+    const chip = calAnchor;
+    closeCalendar();
+    chip.focus();
+  }
+});
+window.addEventListener("resize", () => closeCalendar(true));
 
 // Tabs are built once and then updated in place, so their changes can animate
 const tabButtons = new Map(); // list id -> { tab, count }
 
+// The glow that sits under the active tab and slides between tabs
+const tabGlow = document.createElement("span");
+tabGlow.className = "tab-glow";
+tabGlow.setAttribute("aria-hidden", "true");
+
+function positionTabGlow() {
+  const { tab } = tabButtons.get(activeList);
+  tabGlow.style.width = `${tab.offsetWidth}px`;
+  tabGlow.style.height = `${tab.offsetHeight}px`;
+  tabGlow.style.transform = `translate(${tab.offsetLeft}px, ${tab.offsetTop}px)`;
+}
+
+// Tabs change width when their badge grows or shrinks; keep the glow fitted
+const tabResizeWatcher = new ResizeObserver(() => positionTabGlow());
+
 function buildTabs() {
+  tabs.appendChild(tabGlow);
   for (const l of LISTS) {
     const tab = document.createElement("button");
     tab.type = "button";
@@ -83,13 +376,14 @@ function buildTabs() {
     tab.append(label, count);
     tabs.appendChild(tab);
     tabButtons.set(l.id, { tab, count });
+    tabResizeWatcher.observe(tab);
   }
 }
 
 function renderTabs() {
   for (const l of LISTS) {
     const { tab, count } = tabButtons.get(l.id);
-    const remaining = tasks.filter((t) => t.list === l.id && !t.done).length;
+    const remaining = tasks.filter((t) => l.includes(t) && !t.done).length;
 
     const wasVisible = count.classList.contains("visible");
 
@@ -99,6 +393,7 @@ function renderTabs() {
     // Just appearing: show the number straight away, no roll.
     if (remaining > 0) rollTo(count, remaining, wasVisible);
   }
+  positionTabGlow();
 }
 
 // Changes the number inside a .roll element, rolling it up when it
@@ -155,18 +450,17 @@ function createTaskItem(task) {
   label.textContent = task.text;
   text.appendChild(label);
 
-  // Dropdown to move the task to a different list
-  const move = document.createElement("select");
-  move.className = "move-select";
-  move.title = "Move to another list";
-  for (const l of LISTS) {
-    const option = document.createElement("option");
-    option.value = l.id;
-    option.textContent = l.name;
-    option.selected = l.id === task.list;
-    move.appendChild(option);
-  }
-  move.addEventListener("change", () => moveTask(task.id, move.value));
+  // Date chip: click to reschedule; the task then moves to the matching lists
+  const picker = createDatePicker((date) => changeDate(task.id, date));
+  const overdue = isOverdue(task);
+  picker.set(
+    task.date,
+    R.today,
+    maxDate(),
+    overdue ? `Overdue · ${formatDate(task.date)}` : formatDate(task.date)
+  );
+  picker.chip.classList.toggle("overdue", overdue);
+  picker.chip.title = "Change date";
 
   const deleteBtn = document.createElement("button");
   deleteBtn.className = "delete-btn";
@@ -174,7 +468,7 @@ function createTaskItem(task) {
   deleteBtn.title = "Delete task";
   deleteBtn.addEventListener("click", () => deleteTask(task.id));
 
-  li.append(checkbox, text, move, deleteBtn);
+  li.append(checkbox, text, picker.wrap, deleteBtn);
   return li;
 }
 
@@ -214,10 +508,7 @@ function renderPanels() {
   for (const l of LISTS) {
     const { panel, ul, empty, footer, remaining, total, plural } = panels.get(l.id);
 
-    // Unfinished tasks first, completed ones at the bottom (otherwise keep added order)
-    const panelTasks = tasks
-      .filter((t) => t.list === l.id)
-      .sort((a, b) => Number(a.done) - Number(b.done));
+    const panelTasks = tasksIn(l.id);
 
     // Hidden panels can't be tabbed into or clicked
     panel.inert = l.id !== activeList;
@@ -246,14 +537,11 @@ function positionTrack() {
 
 // ----- Progress panel -----
 
-// Which lists each bar counts
-const PERIODS = [
-  { name: "Today", lists: ["today"] },
-  { name: "This Week", lists: ["today", "tomorrow", "this-week"] },
-  { name: "This Month", lists: ["today", "tomorrow", "this-week", "next-week", "this-month"] },
-];
+// The lists that get a bar (each list already includes the shorter ones)
+const PERIODS = ["today", "this-week", "this-month"];
 
 const stats = document.getElementById("stats");
+const gaugeEl = document.querySelector(".gauge");
 const gaugeFill = document.getElementById("gauge-fill");
 const gaugePct = document.getElementById("gauge-pct");
 const gaugeDone = document.getElementById("gauge-done");
@@ -263,14 +551,14 @@ const statBars = document.getElementById("stat-bars");
 const barParts = []; // one { pct, done, total, fill } per period
 
 function buildBars() {
-  for (const period of PERIODS) {
+  for (const listId of PERIODS) {
     const row = document.createElement("div");
     row.className = "bar-row";
 
     const head = document.createElement("div");
     head.className = "bar-head";
     const label = document.createElement("span");
-    label.textContent = period.name;
+    label.textContent = listName(listId);
     const value = document.createElement("span");
     value.className = "bar-value";
     const pct = document.createElement("span");
@@ -413,8 +701,8 @@ function spinTo(el, target, animate = true) {
   odo.frame = requestAnimationFrame(frame);
 }
 
-function progressFor(listIds) {
-  const relevant = tasks.filter((t) => listIds.includes(t.list));
+function progressFor(listId) {
+  const relevant = tasks.filter(listById(listId).includes);
   const done = relevant.filter((t) => t.done).length;
   const total = relevant.length;
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
@@ -444,9 +732,13 @@ function progressColor(pct) {
 
 function renderStats() {
   // Gauge: the list that's open
-  const g = progressFor([activeList]);
+  const g = progressFor(activeList);
+  const gColor = progressColor(g.pct);
   gaugeFill.style.strokeDashoffset = 100 - g.pct;
-  gaugeFill.style.stroke = progressColor(g.pct);
+  gaugeFill.style.stroke = gColor;
+  // The arc glows in its own color, and breathes once the list is all done
+  gaugeEl.style.setProperty("--gauge-color", g.pct > 0 ? gColor : "transparent");
+  gaugeEl.classList.toggle("complete", g.total > 0 && g.pct === 100);
   gaugeFill.style.opacity = g.pct > 0 ? 1 : 0; // avoid a stray dot at 0%
   spinTo(gaugePct, g.pct);
   rollTo(gaugeDone, g.done);
@@ -454,24 +746,111 @@ function renderStats() {
   gaugeLabel.textContent = listName(activeList);
 
   // Bars: today / this week / this month
-  PERIODS.forEach((period, i) => {
-    const p = progressFor(period.lists);
+  PERIODS.forEach((listId, i) => {
+    const p = progressFor(listId);
     const part = barParts[i];
     part.fill.style.width = p.pct + "%";
     part.fill.style.background = progressColor(p.pct);
+    part.fill.style.setProperty("--bar-color", p.pct > 0 ? progressColor(p.pct) : "transparent");
     spinTo(part.pct, p.pct);
     rollTo(part.done, p.done);
     rollTo(part.total, p.total);
   });
 }
 
+// ----- Light ray around the add-task box -----
+// When you click or tab into the box, a ray of light runs once around its
+// edge and fades out as it completes the lap.
+
+const ray = document.getElementById("input-ray");
+let quietFocus = false;
+
+function playRay() {
+  const w = input.offsetWidth;
+  const h = input.offsetHeight;
+  ray.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  for (const rect of ray.querySelectorAll("rect")) {
+    // Sit exactly on the input's 1px border, with its 8px rounded corners
+    rect.setAttribute("x", 0.5);
+    rect.setAttribute("y", 0.5);
+    rect.setAttribute("width", w - 1);
+    rect.setAttribute("height", h - 1);
+    rect.setAttribute("rx", 8);
+  }
+  // Restart the animation even if it's still running
+  ray.classList.remove("play");
+  ray.getBoundingClientRect();
+  ray.classList.add("play");
+}
+
+// After the ray: the box glows with aurora colors while it's focused.
+// The background aurora switches on the first time this happens and then
+// stays on until the page is refreshed (it doesn't follow focus after that).
+const inputWrap = input.parentElement;
+
+function lightUp(on) {
+  inputWrap.classList.toggle("lit", on);
+  if (on) document.documentElement.classList.add("ambient-on");
+}
+
+ray.addEventListener("animationend", (e) => {
+  // Two rects each run two animations; react once, when the lap's fade ends
+  if (e.animationName === "ray-fade" && e.target.classList.contains("ray-core")) {
+    ray.classList.remove("play");
+    if (document.activeElement === input) lightUp(true);
+  }
+});
+
+input.addEventListener("focus", () => {
+  if (quietFocus) lightUp(true);
+  else if (reduceMotion.matches) lightUp(true); // ray is switched off; just glow
+  else playRay();
+});
+
+input.addEventListener("blur", () => lightUp(false));
+
+// Used when the app moves focus back to the box itself (after adding a task
+// or switching lists), so the ray only plays when you focus it yourself
+function focusInputQuietly() {
+  quietFocus = true;
+  input.focus();
+  quietFocus = false;
+}
+
+// ----- Add-task form date chip -----
+// Today and Tomorrow have a fixed date. This Week, Next Week and This Month
+// show a date chip so you can pick a day within that range.
+
+let formDate = null; // the date chosen in the form's chip
+const formPicker = createDatePicker((date) => {
+  formDate = date;
+  renderForm();
+});
+formPicker.wrap.classList.add("form-picker");
+formPicker.chip.title = "Choose a date";
+form.insertBefore(formPicker.wrap, addBtn);
+
+function renderForm() {
+  const l = listById(activeList);
+  const { min, max } = l.range();
+  // Keep the chosen date if it still fits this list; otherwise start at the earliest day
+  if (!formDate || formDate < min || formDate > max) formDate = min;
+
+  formPicker.set(formDate, min, max, `📅 ${formatDate(formDate)}`);
+  formPicker.wrap.classList.toggle("collapsed", !l.pick);
+  formPicker.wrap.inert = !l.pick;
+  input.placeholder = `Add a task for ${l.name}...`;
+}
+
 function render() {
   clearTimeout(reorderTimer);
+  closeCalendar(); // its chip is about to be rebuilt
+  R = getRanges();
   renderTabs();
   renderStats();
   renderPanels();
   positionTrack();
-  input.placeholder = `Add a task for ${listName(activeList)}...`;
+  renderForm();
 }
 
 // ----- Actions -----
@@ -479,13 +858,17 @@ function render() {
 function switchList(id) {
   if (id === activeList) return;
   activeList = id;
+  formDate = null; // each list starts with its own default date
   saveActiveList();
   render();
-  input.focus();
+  // Focus stays on the tab you clicked; the add-task box only lights up
+  // when you click or tab into it yourself
 }
 
 function addTask(text) {
-  tasks.push({ id: Date.now(), text, done: false, list: activeList });
+  const l = listById(activeList);
+  const date = l.pick ? formDate : l.range().min;
+  tasks.push({ id: Date.now(), text, done: false, date, completedAt: null });
   saveTasks();
   render();
 }
@@ -502,16 +885,43 @@ function toggleTask(id, li) {
   if (!task) return;
 
   task.done = !task.done;
+  // Remember when it was finished (for progress history later)
+  task.completedAt = task.done ? new Date().toISOString() : null;
   saveTasks();
 
   // 1. Draw (or erase) the strike line on the existing row
   li.classList.toggle("done", task.done);
+  if (task.done) sparkle(li.querySelector('input[type="checkbox"]'));
   renderTabs();
   renderStats();
 
   // 2. Once the line has finished, slide tasks into their new order
   clearTimeout(reorderTimer);
   reorderTimer = setTimeout(renderWithMove, reduceMotion.matches ? 0 : STRIKE_DURATION);
+}
+
+// A small burst of glowing dots from the checkbox when a task is completed
+const SPARKLE_COLORS = ["#22c55e", "#3b82f6", "#a78bfa", "#facc15", "#2dd4bf"];
+
+function sparkle(el) {
+  if (reduceMotion.matches) return;
+  const r = el.getBoundingClientRect();
+  const burst = document.createElement("span");
+  burst.className = "sparkle-burst";
+  burst.style.left = `${r.left + r.width / 2}px`;
+  burst.style.top = `${r.top + r.height / 2}px`;
+
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const dot = document.createElement("span");
+    dot.style.setProperty("--a", `${(360 / count) * i + Math.random() * 20}deg`);
+    dot.style.setProperty("--d", `${18 + Math.random() * 14}px`);
+    dot.style.setProperty("--s", `${3 + Math.random() * 3}px`);
+    dot.style.setProperty("--c", SPARKLE_COLORS[i % SPARKLE_COLORS.length]);
+    burst.appendChild(dot);
+  }
+  document.body.appendChild(burst);
+  setTimeout(() => burst.remove(), 800);
 }
 
 // Re-renders, then animates each visible task from its old position to its new one
@@ -539,12 +949,12 @@ function renderWithMove() {
   }
 }
 
-function moveTask(id, newList) {
+function changeDate(id, date) {
   const task = tasks.find((t) => t.id === id);
-  if (task) {
-    task.list = newList;
+  if (task && task.date !== date) {
+    task.date = date;
     saveTasks();
-    render();
+    renderWithMove(); // tasks glide to their new spots if the order changed
   }
 }
 
@@ -560,12 +970,22 @@ form.addEventListener("submit", (event) => {
   if (text) {
     addTask(text);
     input.value = "";
-    input.focus();
+    focusInputQuietly();
   }
 });
 
 // Keep the viewport height right if the window is resized (text may rewrap)
 window.addEventListener("resize", positionTrack);
+
+// Roll the lists over when the day changes (checked every minute and when
+// you come back to the tab), so tomorrow's tasks move into Today by themselves
+function checkForNewDay() {
+  if (getRanges().today !== R.today) render();
+}
+setInterval(checkForNewDay, 60 * 1000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkForNewDay();
+});
 
 // ----- Theme toggle -----
 
@@ -598,6 +1018,14 @@ buildTabs();
 buildPanels();
 buildBars();
 render();
+
+// Start with nothing focused, even if the browser tries to restore focus to
+// the box after a refresh or when coming back with the Back button
+function startUnfocused() {
+  if (document.activeElement === input) input.blur();
+}
+startUnfocused();
+window.addEventListener("pageshow", startUnfocused);
 requestAnimationFrame(() => {
   requestAnimationFrame(() => {
     viewport.classList.remove("no-animate");
