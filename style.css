@@ -91,6 +91,54 @@ h1 {
   background: var(--toggle-hover);
 }
 
+/* List tabs */
+.list-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: var(--toggle-hover);
+}
+
+.tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.tab-count {
+  font-size: 0.75rem;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--toggle-hover);
+  color: var(--text);
+}
+
+.tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
 /* Add-task form */
 .task-form {
   display: flex;
@@ -161,6 +209,21 @@ h1 {
 .task-item.done .task-text {
   text-decoration: line-through;
   color: var(--text-done);
+}
+
+.move-select {
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  background: var(--input-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.move-select:hover {
+  color: var(--text);
 }
 
 .delete-btn {
