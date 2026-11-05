@@ -90,4 +90,27 @@ form.addEventListener("submit", (event) => {
   }
 });
 
+// ----- Theme toggle -----
+const THEME_KEY = "todo-theme";
+const themeToggle = document.getElementById("theme-toggle");
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  // Show the icon for the theme you'd switch TO
+  themeToggle.textContent = theme === "dark" ? "☀️" : "🌙";
+  themeToggle.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+}
+
+themeToggle.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch {
+    // Storage unavailable; theme just won't be remembered
+  }
+});
+
+applyTheme(document.documentElement.dataset.theme || "light");
+
 render();
