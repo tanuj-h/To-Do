@@ -36,6 +36,8 @@
   --edge-opacity: 0.85;
   --edge-width: 1.5px;
   --tab-glow: rgba(147, 197, 253, 0.55);
+  /* Empty part of the progress gauge and bars: a warm sand tone */
+  --track: #f1e6df;
   /* Warm frosted glass that lets the sunrise colors through */
   --card-glass: rgba(255, 252, 250, 0.62);
 }
@@ -66,6 +68,7 @@
   --halo-opacity: 0.7;
   --edge-opacity: 0.75;
   --edge-width: 1px;
+  --track: var(--border);
   /* Dark mode's glows use the neon aurora colors themselves */
   --glow-1: var(--aur-1);
   --glow-2: var(--aur-2);
@@ -283,7 +286,7 @@ body {
 }
 
 .gauge-track {
-  stroke: var(--border);
+  stroke: var(--track);
 }
 
 .gauge-fill {
@@ -365,7 +368,7 @@ body {
   height: 10px;
   margin-top: 6px;
   border-radius: 999px;
-  background: var(--border);
+  background: var(--track);
 }
 
 .bar-fill {

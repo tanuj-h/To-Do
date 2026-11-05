@@ -708,27 +708,56 @@ function progressFor(listId) {
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
-// Smoothly blends red -> yellow -> green as the percentage rises
-const COLOR_STOPS = [
-  [0, 0], // [percent, hue]
-  [30, 0], // red
-  [50, 45], // yellow
-  [65, 50],
-  [90, 125], // green
-  [100, 130],
-];
+// Smoothly blends low -> middle -> high as the percentage rises.
+// Each stop is [percent, hue, saturation %, lightness %].
+const COLOR_STOPS = {
+  // Dark mode ("muted traffic light"): dusty rose-red -> warm amber -> emerald.
+  // (Hue -5 is the same as 355, a rose-red; negative keeps the blend going
+  // the short way round to amber.)
+  dark: [
+    [0, -5, 62, 62],
+    [30, -5, 62, 62], // dusty rose-red
+    [50, 32, 78, 60], // warm amber
+    [65, 40, 80, 58],
+    [90, 150, 50, 50], // emerald
+    [100, 155, 55, 48],
+  ],
+  // Light mode ("pastel sunrise"): soft coral -> apricot/honey -> sage green
+  light: [
+    [0, 4, 80, 68],
+    [30, 4, 80, 68], // coral
+    [50, 30, 88, 64], // apricot
+    [65, 40, 85, 58], // honey
+    [90, 145, 45, 55], // sage green
+    [100, 150, 48, 52],
+  ],
+};
 
-function progressColor(pct) {
-  for (let i = 1; i < COLOR_STOPS.length; i++) {
-    const [p1, h1] = COLOR_STOPS[i - 1];
-    const [p2, h2] = COLOR_STOPS[i];
+const isDarkTheme = () => document.documentElement.dataset.theme === "dark";
+
+// alpha < 1 gives a see-through version (used for the softer light-mode glow)
+function progressColor(pct, alpha = 1) {
+  const stops = COLOR_STOPS[isDarkTheme() ? "dark" : "light"];
+  let [, h, s, l] = stops[stops.length - 1];
+  for (let i = 1; i < stops.length; i++) {
+    const [p1, h1, s1, l1] = stops[i - 1];
+    const [p2, h2, s2, l2] = stops[i];
     if (pct <= p2) {
-      const hue = h1 + ((pct - p1) / (p2 - p1)) * (h2 - h1);
-      return `hsl(${hue}, 75%, 50%)`;
+      const t = (pct - p1) / (p2 - p1);
+      h = h1 + t * (h2 - h1);
+      s = s1 + t * (s2 - s1);
+      l = l1 + t * (l2 - l1);
+      break;
     }
   }
-  return `hsl(130, 75%, 50%)`;
+  return `hsla(${h}, ${s}%, ${l}%, ${alpha})`;
 }
+
+// Glow strength (how see-through the glow color is): a soft glow in dark
+// mode, an even fainter haze in light mode
+const GLOW_ALPHA = { dark: 0.4, light: 0.45 };
+const glowColor = (pct) =>
+  pct > 0 ? progressColor(pct, GLOW_ALPHA[isDarkTheme() ? "dark" : "light"]) : "transparent";
 
 function renderStats() {
   // Gauge: the list that's open
@@ -737,7 +766,7 @@ function renderStats() {
   gaugeFill.style.strokeDashoffset = 100 - g.pct;
   gaugeFill.style.stroke = gColor;
   // The arc glows in its own color, and breathes once the list is all done
-  gaugeEl.style.setProperty("--gauge-color", g.pct > 0 ? gColor : "transparent");
+  gaugeEl.style.setProperty("--gauge-color", glowColor(g.pct));
   gaugeEl.classList.toggle("complete", g.total > 0 && g.pct === 100);
   gaugeFill.style.opacity = g.pct > 0 ? 1 : 0; // avoid a stray dot at 0%
   spinTo(gaugePct, g.pct);
@@ -751,7 +780,7 @@ function renderStats() {
     const part = barParts[i];
     part.fill.style.width = p.pct + "%";
     part.fill.style.background = progressColor(p.pct);
-    part.fill.style.setProperty("--bar-color", p.pct > 0 ? progressColor(p.pct) : "transparent");
+    part.fill.style.setProperty("--bar-color", glowColor(p.pct));
     spinTo(part.pct, p.pct);
     rollTo(part.done, p.done);
     rollTo(part.total, p.total);
@@ -1017,6 +1046,7 @@ function applyTheme(theme) {
 themeToggle.addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   applyTheme(next);
+  renderStats(); // progress colors differ between themes
   try {
     localStorage.setItem(THEME_KEY, next);
   } catch {
