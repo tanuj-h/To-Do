@@ -80,13 +80,13 @@ body {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  opacity: 0; /* off until the add-task box is first focused */
-  transition: opacity 2.5s ease;
+  opacity: var(--aurora-opacity);
+  /* Fades in each time the page opens or is refreshed */
+  animation: aurora-in 2.5s ease both;
 }
 
-/* Switched on (for good, until refresh) the first time the box lights up */
-.ambient-on .aurora {
-  opacity: var(--aurora-opacity);
+@keyframes aurora-in {
+  from { opacity: 0; }
 }
 
 .aurora span {

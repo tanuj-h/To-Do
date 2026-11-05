@@ -784,13 +784,11 @@ function playRay() {
 }
 
 // After the ray: the box glows with aurora colors while it's focused.
-// The background aurora switches on the first time this happens and then
-// stays on until the page is refreshed (it doesn't follow focus after that).
+// (The background aurora is separate: it fades in when the page opens.)
 const inputWrap = input.parentElement;
 
 function lightUp(on) {
   inputWrap.classList.toggle("lit", on);
-  if (on) document.documentElement.classList.add("ambient-on");
 }
 
 ray.addEventListener("animationend", (e) => {
