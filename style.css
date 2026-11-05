@@ -1,6 +1,5 @@
 /* Theme colors: light is the default, dark overrides below */
 :root {
-  --bg: #f2f4f7;
   --card-bg: #ffffff;
   --card-shadow: rgba(0, 0, 0, 0.08);
   --text: #1f2933;
@@ -15,18 +14,30 @@
   --danger: #ef4444;
   --danger-bg: #fee2e2;
   --toggle-hover: #e4e7eb;
-  --ray-core: #3b82f6;
-  --ray-glow: rgba(59, 130, 246, 0.55);
-  /* Ambient light */
-  --aur-1: #3b82f6; /* blue */
-  --aur-2: #8b5cf6; /* violet */
-  --aur-3: #14b8a6; /* teal */
-  --aurora-opacity: 0.12; /* relaxed */
-  --aurora-opacity-lit: 0.38; /* full */
-  --halo-opacity: 0.45;
-  --edge-opacity: 0.55;
-  --tab-glow: rgba(59, 130, 246, 0.22);
-  --card-glass: rgba(255, 255, 255, 0.78);
+  /* ----- Light mode ambience: "pastel sunrise" -----
+     Instead of neon, soft morning-sky washes of peach, rose, sky blue
+     and lavender spread across a warm off-white page. Pastels are pale,
+     so they run at a higher strength than dark mode's neon. */
+  --bg: #fbf8f6;
+  --aur-1: #fdba74; /* peach */
+  --aur-2: #f9a8d4; /* rose */
+  --aur-3: #93c5fd; /* sky blue */
+  --aur-4: #c4b5fd; /* lavender */
+  --aurora-opacity: 0.5; /* relaxed */
+  --aurora-opacity-lit: 0.85; /* full */
+  /* Glows on edges and the add-task box: slightly deeper versions of the
+     pastels so they still read as light against white */
+  --glow-1: #fb923c; /* warm orange */
+  --glow-2: #f472b6; /* pink */
+  --glow-3: #818cf8; /* periwinkle */
+  --ray-core: #ec4899;
+  --ray-glow: rgba(251, 146, 60, 0.7);
+  --halo-opacity: 0.6;
+  --edge-opacity: 0.85;
+  --edge-width: 1.5px;
+  --tab-glow: rgba(147, 197, 253, 0.55);
+  /* Warm frosted glass that lets the sunrise colors through */
+  --card-glass: rgba(255, 252, 250, 0.62);
 }
 
 [data-theme="dark"] {
@@ -54,6 +65,11 @@
   --aurora-opacity-lit: 0.6;
   --halo-opacity: 0.7;
   --edge-opacity: 0.75;
+  --edge-width: 1px;
+  /* Dark mode's glows use the neon aurora colors themselves */
+  --glow-1: var(--aur-1);
+  --glow-2: var(--aur-2);
+  --glow-3: var(--aur-3);
   --tab-glow: rgba(96, 165, 250, 0.3);
   --card-glass: rgba(31, 41, 55, 0.72);
 }
@@ -122,6 +138,24 @@ body {
   animation: drift-3 24s ease-in-out infinite alternate;
 }
 
+/* Fourth light: lavender, used by light mode's sunrise palette only */
+.aurora span:nth-child(4) {
+  top: 40%;
+  left: -20vmax;
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(circle, var(--aur-4), transparent 65%);
+  animation: drift-4 30s ease-in-out infinite alternate;
+}
+
+[data-theme="dark"] .aurora span:nth-child(4) {
+  display: none;
+}
+
+@keyframes drift-4 {
+  to { transform: translate(20vmax, -14vmax) scale(1.2); }
+}
+
 @keyframes drift-1 {
   to { transform: translate(18vmax, 10vmax) scale(1.15); }
 }
@@ -171,14 +205,14 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px; /* the ring's thickness */
+  padding: var(--edge-width, 1px); /* the ring's thickness */
   background: conic-gradient(
     from var(--edge-angle),
     transparent 0deg,
-    var(--aur-1) 50deg,
+    var(--glow-1) 50deg,
     transparent 110deg,
     transparent 180deg,
-    var(--aur-2) 230deg,
+    var(--glow-2) 230deg,
     transparent 290deg
   );
   /* Show only the 1px ring, not the middle */
@@ -627,7 +661,7 @@ select {
   position: absolute;
   pointer-events: none;
   border-radius: 9px;
-  background: linear-gradient(90deg, var(--aur-1), var(--aur-2), var(--aur-3), var(--aur-1));
+  background: linear-gradient(90deg, var(--glow-1), var(--glow-2), var(--glow-3), var(--glow-1));
   background-size: 200% 100%;
   opacity: 0;
   transition: opacity 0.6s ease;
