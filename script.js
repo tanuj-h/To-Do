@@ -110,8 +110,12 @@ const track = document.getElementById("list-track");
 const PHONE = window.matchMedia("(max-width: 640px)");
 
 // Each task looks like:
-// { id: number, text: string, done: boolean, date: "YYYY-MM-DD", completedAt: ISO string | null }
-let tasks = loadTasks();
+// { id: string, text: string, done: boolean, date: "YYYY-MM-DD",
+//   completedAt: ISO string | null, createdAt: ISO string }
+// The id is a random UUID, so tasks made on different devices never clash.
+const loaded = loadTasks();
+let tasks = loaded.tasks;
+if (loaded.converted) saveTasks(); // store older tasks in the current shape, once
 let activeList = loadActiveList();
 
 // ----- Saving and loading -----
@@ -133,17 +137,45 @@ function dateForOldList(list) {
   }
 }
 
+// A random id like "3f2b8c1e-9a4d-4c2b-8e1f-...". Older browsers without
+// crypto.randomUUID get one built by hand from random numbers.
+function newId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+  );
+}
+
+// Returns the saved tasks, and whether any had to be converted from an older shape
 function loadTasks() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : [];
-    return parsed.map(({ list, ...t }) => ({
-      ...t,
-      date: t.date || dateForOldList(list),
-      completedAt: t.completedAt ?? null,
-    }));
+    let converted = false;
+
+    const loadedTasks = parsed.map(({ list, ...t }) => {
+      // Older tasks used the moment they were added (a number) as their id.
+      // They get a random id instead, and that moment becomes createdAt, so
+      // the list keeps the same order.
+      if (typeof t.id === "number") {
+        const made = new Date(t.id);
+        t.createdAt = Number.isNaN(made.getTime()) ? new Date().toISOString() : made.toISOString();
+        t.id = newId();
+        converted = true;
+      }
+      if (!t.date || !t.createdAt) converted = true;
+
+      return {
+        ...t,
+        date: t.date || dateForOldList(list),
+        completedAt: t.completedAt ?? null,
+        createdAt: t.createdAt ?? new Date().toISOString(),
+      };
+    });
+
+    return { tasks: loadedTasks, converted };
   } catch {
-    return [];
+    return { tasks: [], converted: false };
   }
 }
 
@@ -180,7 +212,12 @@ function tasksIn(listId) {
   const l = listById(listId);
   return tasks
     .filter(l.includes)
-    .sort((a, b) => Number(a.done) - Number(b.done) || a.date.localeCompare(b.date) || a.id - b.id);
+    .sort(
+      (a, b) =>
+        Number(a.done) - Number(b.done) ||
+        a.date.localeCompare(b.date) ||
+        a.createdAt.localeCompare(b.createdAt)
+    );
 }
 
 // A date chip: shows a date as text and opens the calendar below when clicked
@@ -1035,7 +1072,14 @@ function switchList(id) {
 function addTask(text) {
   const l = listById(activeList);
   const date = l.pick ? formDate : l.range().min;
-  tasks.push({ id: Date.now(), text, done: false, date, completedAt: null });
+  tasks.push({
+    id: newId(),
+    text,
+    done: false,
+    date,
+    completedAt: null,
+    createdAt: new Date().toISOString(),
+  });
   saveTasks();
   render();
 }
@@ -1233,16 +1277,19 @@ document.addEventListener("visibilitychange", () => {
 
 // ----- Theme toggle -----
 
-const themeToggle = document.getElementById("theme-toggle");
+// One on the sign-in page, one in the to-do card's header
+const themeToggles = document.querySelectorAll(".theme-toggle");
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   // Show the icon for the theme you'd switch TO
-  themeToggle.textContent = theme === "dark" ? "☀️" : "🌙";
-  themeToggle.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  for (const btn of themeToggles) {
+    btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    btn.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  }
 }
 
-themeToggle.addEventListener("click", () => {
+function toggleTheme() {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   applyTheme(next);
   renderStats(); // progress colors differ between themes
@@ -1251,9 +1298,301 @@ themeToggle.addEventListener("click", () => {
   } catch {
     // Storage unavailable; theme just won't be remembered
   }
-});
+}
+
+themeToggles.forEach((btn) => btn.addEventListener("click", toggleTheme));
 
 applyTheme(document.documentElement.dataset.theme || "light");
+
+// ----- Sign-in page and account -----
+// The page shows either the sign-in card or the to-do list. index.html picks
+// which one before the page paints, so the wrong one never flashes up; after
+// that, showScreen() switches between them with an animation. sync.js does
+// the actual signing in, and calls onAccountChange() when it knows who's
+// signed in.
+
+const root = document.documentElement;
+const MODE_KEY = "todo-mode"; // "guest" once you've chosen guest mode
+const SCREEN_LEAVE_MS = 300; // matches screen-out in style.css
+const SCREEN_ENTER_MS = 700; // screen-in (0.6s) plus the progress panel's small delay
+
+const signinCard = document.getElementById("signin");
+const googleBtn = document.getElementById("google-btn");
+const guestBtn = document.getElementById("guest-btn");
+const signinError = document.getElementById("signin-error");
+const signInPill = document.getElementById("sign-in-btn");
+const avatarBtn = document.getElementById("avatar-btn");
+const avatarImg = document.getElementById("avatar-img");
+const avatarInitials = document.getElementById("avatar-initials");
+const accountMenu = document.getElementById("account-menu");
+const menuName = document.getElementById("menu-name");
+const menuEmail = document.getElementById("menu-email");
+const signOutBtn = document.getElementById("sign-out-btn");
+
+// sync.js loads after this file (see the end of index.html). This settles
+// once it has run, in case a button is pressed before then.
+const syncLoaded = new Promise((resolve) => {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", resolve, { once: true });
+  } else {
+    resolve();
+  }
+});
+
+let screenTimer = null;
+let enterTimer = null;
+
+// The list measures as zero while it's hidden, so lay it out again once shown
+function refreshLayout() {
+  viewport.classList.add("no-animate");
+  tabs.classList.add("no-animate");
+  positionTrack();
+  positionTabGlow();
+  revealActiveTab(false);
+  updateTabFades();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      viewport.classList.remove("no-animate");
+      tabs.classList.remove("no-animate");
+    });
+  });
+}
+
+// Switches to "signin" or "app": the current card shrinks away, then the
+// other rises in. afterSwap runs once the old card is out of sight.
+function showScreen(name, afterSwap) {
+  const current = root.dataset.screen;
+  const leaving = current === "app" ? layout : signinCard;
+
+  if (current === name) {
+    // Already there; just cancel a switch away from it if one was starting
+    if (screenTimer) {
+      clearTimeout(screenTimer);
+      screenTimer = null;
+      leaving.classList.remove("leaving");
+    }
+    afterSwap?.();
+    return;
+  }
+
+  clearTimeout(screenTimer);
+  clearTimeout(enterTimer);
+  layout.classList.remove("entering");
+  closeCalendar(true);
+  closeAccountMenu();
+
+  const swap = () => {
+    screenTimer = null;
+    leaving.classList.remove("leaving");
+    root.dataset.screen = name;
+    if (leaving === signinCard) setSigningIn(false); // reset it while it's hidden
+    afterSwap?.();
+    if (name === "app") {
+      refreshLayout();
+      if (!reduceMotion.matches) {
+        layout.classList.add("entering");
+        enterTimer = setTimeout(() => layout.classList.remove("entering"), SCREEN_ENTER_MS);
+      }
+    }
+  };
+
+  if (reduceMotion.matches) {
+    swap();
+  } else {
+    leaving.classList.add("leaving");
+    screenTimer = setTimeout(swap, SCREEN_LEAVE_MS);
+  }
+}
+
+// "Signing you in…" on the Google button, with the guest button paused
+function setSigningIn(on) {
+  if (on) root.dataset.signingIn = "";
+  else delete root.dataset.signingIn;
+  googleBtn.setAttribute("aria-busy", String(on));
+  guestBtn.disabled = on;
+}
+
+const isSigningIn = () => root.dataset.signingIn !== undefined;
+
+function showSigninError(message) {
+  signinError.textContent = message;
+  signinError.hidden = false;
+}
+
+function hideSigninError() {
+  signinError.hidden = true;
+}
+
+// Remembers guest mode, so guests go straight to their list next time
+function setGuestMode(on) {
+  try {
+    if (on) localStorage.setItem(MODE_KEY, "guest");
+    else localStorage.removeItem(MODE_KEY);
+  } catch {}
+}
+
+guestBtn.addEventListener("click", () => {
+  hideSigninError();
+  setGuestMode(true);
+  showScreen("app");
+});
+
+googleBtn.addEventListener("click", async () => {
+  if (isSigningIn()) return;
+  hideSigninError();
+  setSigningIn(true);
+  await syncLoaded;
+  // If it works, the browser is already on its way to Google
+  const result = typeof signInWithGoogle === "function" ? await signInWithGoogle() : { error: true };
+  if (result.error) {
+    setSigningIn(false);
+    showSigninError("Couldn't reach Google sign-in. Check your connection and try again.");
+  }
+});
+
+// Guest mode's "Sign in" button: back to the sign-in page
+signInPill.addEventListener("click", () => {
+  setGuestMode(false);
+  hideSigninError();
+  showScreen("signin");
+});
+
+// ----- Account menu (avatar) -----
+
+function closeAccountMenu() {
+  accountMenu.classList.remove("open");
+  avatarBtn.setAttribute("aria-expanded", "false");
+}
+
+avatarBtn.addEventListener("click", () => {
+  const open = !accountMenu.classList.contains("open");
+  accountMenu.classList.toggle("open", open);
+  avatarBtn.setAttribute("aria-expanded", String(open));
+});
+
+document.addEventListener("pointerdown", (e) => {
+  if (
+    accountMenu.classList.contains("open") &&
+    !accountMenu.contains(e.target) &&
+    !avatarBtn.contains(e.target)
+  ) {
+    closeAccountMenu();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && accountMenu.classList.contains("open")) {
+    closeAccountMenu();
+    avatarBtn.focus();
+  }
+});
+
+signOutBtn.addEventListener("click", async () => {
+  closeAccountMenu();
+  await syncLoaded;
+  if (typeof signOutOfCloud === "function") await signOutOfCloud();
+  // sync.js then reports that nobody's signed in, which brings back the sign-in page
+});
+
+// "Jane Doe" -> "JD", "jane@gmail.com" -> "J"
+function initialsOf(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  return words.map((w) => Array.from(w)[0]).join("").toUpperCase() || "?";
+}
+
+// Fills in the header's avatar and menu (user = null means guest)
+function showAccount(user) {
+  root.dataset.account = user ? "user" : "guest";
+  if (!user) return;
+
+  const meta = user.user_metadata || {};
+  const name = meta.full_name || meta.name || "";
+  const email = user.email || "";
+  menuName.textContent = name || email;
+  menuEmail.textContent = name ? email : "";
+  avatarInitials.textContent = initialsOf(name || email);
+  avatarBtn.setAttribute("aria-label", `Account: ${name || email}`);
+
+  // Google photo: fades in over the initials once loaded (initials stay if it fails)
+  const photo = meta.avatar_url || meta.picture || "";
+  if (photo !== (avatarImg.getAttribute("src") || "")) {
+    avatarImg.classList.remove("loaded");
+    if (photo) avatarImg.src = photo;
+    else avatarImg.removeAttribute("src");
+  }
+}
+
+avatarImg.addEventListener("load", () => avatarImg.classList.add("loaded"));
+avatarImg.addEventListener("error", () => avatarImg.classList.remove("loaded"));
+
+// The sign-in saved on this device, so the avatar shows straight away
+// (sync.js confirms it a moment later)
+function savedUser() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY));
+    return saved?.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Removes sign-in leftovers (?code=… or ?error=…) from the address bar
+function cleanAuthParamsFromUrl() {
+  const url = new URL(location.href);
+  const before = url.href;
+  for (const p of ["code", "state", "error", "error_code", "error_description"]) {
+    url.searchParams.delete(p);
+  }
+  if (/(^#|&)(access_token|error)=/.test(url.hash)) url.hash = "";
+  if (url.href !== before) history.replaceState(history.state, "", url.href);
+}
+
+// sync.js calls this with the signed-in user, or null for nobody: once when
+// the page loads, then whenever it changes (here, in another tab, or when a
+// sign-in runs out)
+function onAccountChange(user) {
+  const wasSignedIn = root.dataset.account === "user";
+  cleanAuthParamsFromUrl();
+
+  if (user) {
+    showAccount(user);
+    setGuestMode(false);
+    hideSigninError();
+    showScreen("app");
+  } else if (wasSignedIn) {
+    // Signed out: the header keeps your avatar until the list is out of sight
+    showScreen("signin", () => showAccount(null));
+  } else if (isSigningIn()) {
+    setSigningIn(false);
+    showSigninError("Sign-in didn't finish. Please try again.");
+  }
+}
+
+// sync.js calls this if Supabase couldn't load (for example when offline)
+function onCloudUnavailable() {
+  if (isSigningIn()) {
+    setSigningIn(false);
+    showSigninError("Couldn't reach the sign-in service. Check your connection and try again.");
+  }
+}
+
+// Back from Google: still finishing, or it was cancelled / failed
+if (isSigningIn()) setSigningIn(true);
+if (/[?&#]error(_description)?=/.test(location.search + location.hash)) {
+  showSigninError("Google sign-in was cancelled or didn't finish. Please try again.");
+}
+
+// Signed in on this device: show your avatar straight away
+if (root.dataset.account === "user") {
+  const user = savedUser();
+  if (user) showAccount(user);
+}
+
+// Pressing Back on Google's page restores this page exactly as it was left,
+// still saying "Signing you in…"
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) setSigningIn(false);
+});
 
 // First draw without animation, then turn animations on
 viewport.classList.add("no-animate");

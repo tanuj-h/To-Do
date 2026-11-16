@@ -1,1 +1,5 @@
 desktop.ini
+
+# Claude Code settings and the Supabase MCP connection: local tools, not part of the site
+.claude/
+.mcp.json

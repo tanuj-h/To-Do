@@ -186,7 +186,8 @@ body {
 
 /* Cards are frosted glass, so the aurora glows softly through them */
 .app,
-.stats {
+.stats,
+.signin-card {
   background: var(--card-glass);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   backdrop-filter: blur(24px) saturate(140%);
@@ -203,7 +204,8 @@ body {
 }
 
 .app::before,
-.stats::before {
+.stats::before,
+.signin-card::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1531,5 +1533,431 @@ select {
 
   .task-form button[type="submit"]:active {
     background: var(--accent-hover);
+  }
+}
+
+/* =====================================================================
+   Sign-in page and account button
+   ===================================================================== */
+
+/* Which screen shows is set on <html> by index.html before the page
+   paints, then switched by script.js */
+[data-screen="signin"] .layout,
+[data-screen="app"] .signin-card {
+  display: none;
+}
+
+/* Header: a "Sign in" button for guests, your avatar when signed in */
+[data-account="user"] .signin-pill,
+:root:not([data-account="user"]) .account {
+  display: none;
+}
+
+/* Switching screens: the old card shrinks away, then the new one rises in */
+.signin-card.leaving,
+.layout.leaving {
+  animation: screen-out 0.3s ease forwards;
+}
+
+.layout.entering > .app,
+.layout.entering > .stats {
+  animation: screen-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.layout.entering > .stats {
+  animation-delay: 80ms;
+}
+
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+}
+
+@keyframes screen-out {
+  to { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+/* ----- Sign-in card ----- */
+.signin-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
+  margin-block: auto; /* centered on the page */
+  padding: 44px 32px 32px;
+  border-radius: 18px;
+  text-align: center;
+  animation: screen-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.signin-card .theme-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+/* The card's contents rise in one after another (--i is each one's place) */
+.rise {
+  animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(120ms + var(--i, 0) * 70ms);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+/* Little logo: a tick that draws itself in, on the aurora colors */
+.brand-mark {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--glow-1), var(--glow-2) 55%, var(--glow-3));
+  box-shadow: 0 8px 24px -8px var(--glow-2);
+}
+
+.brand-mark path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 0.5s ease 0.5s forwards;
+}
+
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+
+.signin-card h1 {
+  font-size: 2rem;
+}
+
+.signin-sub {
+  color: var(--text-muted);
+  margin: 6px 0 28px;
+}
+
+/* Shown when sign-in is cancelled or fails */
+.signin-error {
+  margin: -12px 0 16px;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 8px;
+  animation: rise 0.35s ease backwards;
+}
+
+.btn-google,
+.btn-guest {
+  width: 100%;
+  height: 50px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn-google {
+  display: grid;
+  place-items: center;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-google:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px var(--card-shadow), 0 0 0 3px var(--accent-ring);
+}
+
+/* "Continue with Google" and "Signing you in…" share one spot and cross-fade */
+.btn-face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.btn-face.busy {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+[data-signing-in] .btn-google,
+[data-signing-in] .btn-google:hover {
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+  border-color: var(--input-border);
+}
+
+[data-signing-in] .btn-google .idle {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+[data-signing-in] .btn-google .busy {
+  opacity: 1;
+  transform: none;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.btn-guest {
+  background: none;
+  border: 1px solid var(--border);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn-guest:hover {
+  background: var(--toggle-hover);
+}
+
+.btn-guest:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: none;
+}
+
+.guest-note {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ----- Header buttons ----- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px 0 12px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.signin-pill:hover {
+  background: var(--toggle-hover);
+}
+
+.account {
+  position: relative;
+}
+
+.avatar-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--glow-1), var(--glow-2));
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: pop-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.avatar-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.6); }
+}
+
+/* Your Google photo fades in over the initials once it has loaded */
+.avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.avatar-img.loaded {
+  opacity: 1;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 10;
+  width: 240px;
+  padding: 8px;
+  text-align: left;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px var(--card-shadow);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.account-menu.open {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s;
+}
+
+.menu-user {
+  padding: 8px 10px 10px;
+  overflow-wrap: anywhere;
+}
+
+.menu-name {
+  font-weight: 600;
+}
+
+.menu-email {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 0 4px 6px;
+  background: var(--border);
+}
+
+.menu-item {
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--toggle-hover);
+}
+
+@media (max-width: 640px) {
+  .signin-card {
+    padding: 40px 20px 26px;
+  }
+
+  .signin-card h1 {
+    font-size: 1.75rem;
+  }
+
+  .pill-text {
+    display: none;
+  }
+
+  .signin-pill {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* Touch screens: no hover styles left "stuck" after a tap */
+@media (hover: none) {
+  .btn-google:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--input-border);
+  }
+
+  .btn-guest:hover,
+  .signin-pill:hover,
+  .menu-item:hover {
+    background: none;
+  }
+
+  .avatar-btn:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signin-card,
+  .signin-card::before,
+  .signin-card.leaving,
+  .layout.leaving,
+  .layout.entering > .app,
+  .layout.entering > .stats,
+  .rise,
+  .signin-error,
+  .avatar-btn {
+    animation: none;
+  }
+
+  .brand-mark path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .btn-face,
+  .account-menu,
+  .avatar-img {
+    transition: none;
   }
 }
