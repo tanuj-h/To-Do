@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>My To-Do List</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,7 +48,10 @@
           <rect class="ray-core" pathLength="100" />
         </svg>
       </span>
-      <button type="submit">Add</button>
+      <!-- Shows "Add" on wider screens and a round "+" on phones -->
+      <button type="submit" class="add-btn" aria-label="Add task">
+        <span class="add-text">Add</span><span class="add-plus" aria-hidden="true">+</span>
+      </button>
     </form>
 
     <!-- All lists sit side by side in the track; the viewport shows one at a time -->
@@ -60,6 +63,24 @@
   <!-- Progress panel: gauge for the open list, bars for today / week / month -->
   <aside id="stats" class="stats" aria-label="Progress">
     <h2 class="stats-title">Progress</h2>
+
+    <!-- Phones only: a compact one-line summary; tap it to open the full panel -->
+    <button type="button" id="stats-summary" class="stats-summary" aria-expanded="false" aria-controls="stats-collapse">
+      <svg class="mini-ring" viewBox="0 0 36 36" aria-hidden="true">
+        <circle class="mini-track" cx="18" cy="18" r="15" pathLength="100" />
+        <circle id="mini-fill" class="mini-fill" cx="18" cy="18" r="15" pathLength="100" />
+      </svg>
+      <span id="mini-label" class="mini-label"></span>
+      <span class="mini-pct"><span id="mini-pct"></span>%</span>
+      <span class="mini-count"><span id="mini-done" class="roll"></span>/<span id="mini-total" class="roll"></span></span>
+      <svg class="mini-chevron" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+
+    <!-- On phones this folds open and shut; on wider screens it's always open -->
+    <div id="stats-collapse" class="stats-collapse">
+    <div class="stats-collapse-inner">
     <div class="stats-body">
       <div class="gauge">
         <!-- A 270° arc, open at the bottom. pathLength="100" lets us fill it by percentage -->
@@ -77,6 +98,8 @@
       </div>
 
       <div id="stat-bars" class="bars"></div>
+    </div>
+    </div>
     </div>
   </aside>
   </div>

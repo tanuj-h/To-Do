@@ -264,6 +264,23 @@ body {
   flex-direction: column;
 }
 
+/* The compact summary only appears on phones (see the phone section at the end) */
+.stats-summary {
+  display: none;
+}
+
+/* Fold-open wrapper for the full panel. Animating grid rows between 0fr
+   and 1fr gives a smooth open/close to the content's natural height.
+   On wider screens it's simply always open. */
+.stats-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.stats-collapse-inner {
+  min-height: 0;
+}
+
 .gauge {
   position: relative;
   width: 220px;
@@ -397,6 +414,7 @@ body {
   .stats {
     order: -1;
     position: relative; /* not sticky here, but still holds its edge light */
+    top: auto; /* drop the sticky offset, or it would shift the panel down */
     padding: 20px 24px;
   }
 
@@ -491,6 +509,27 @@ select {
 
 .list-tabs::-webkit-scrollbar {
   display: none;
+}
+
+/* When tabs run off the edge, fade that edge out as a hint that there's
+   more to scroll to (classes set from script.js as you scroll) */
+.list-tabs {
+  overscroll-behavior-x: contain;
+}
+
+.list-tabs.fade-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+}
+
+.list-tabs.fade-left {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 44px);
+  mask-image: linear-gradient(to right, transparent, #000 44px);
+}
+
+.list-tabs.fade-left.fade-right {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent);
 }
 
 /* Soft light under the active tab; slides to the new tab when you switch */
@@ -783,6 +822,11 @@ select {
   cursor: pointer;
 }
 
+/* "+" replaces the word "Add" on phones */
+.add-plus {
+  display: none;
+}
+
 .task-form button[type="submit"]:hover {
   background: var(--accent-hover);
 }
@@ -815,6 +859,8 @@ select {
 .list-viewport {
   overflow: hidden;
   transition: height 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+  /* The browser handles up/down scrolling; sideways swipes switch lists */
+  touch-action: pan-y;
 }
 
 .list-track {
@@ -835,7 +881,10 @@ select {
 .no-animate .tab-count,
 .no-animate .gauge-fill,
 .no-animate .bar-fill,
-.no-animate .tab-glow {
+.no-animate .tab-glow,
+.no-animate .stats-collapse,
+.no-animate .mini-fill,
+.no-animate .mini-chevron {
   transition: none !important;
 }
 
@@ -882,8 +931,11 @@ select {
     animation: none;
   }
 
-  .tab-glow {
-    transition: none;
+  .tab-glow,
+  .stats-collapse,
+  .mini-fill,
+  .mini-chevron {
+    transition: none !important;
   }
 }
 
@@ -913,6 +965,16 @@ select {
   cursor: pointer;
   flex-shrink: 0;
   accent-color: var(--accent);
+}
+
+/* Invisible padding around the checkbox so it's easier to hit with a
+   finger; the negative margin keeps the layout exactly the same */
+.check-hit {
+  display: flex;
+  flex-shrink: 0;
+  padding: 10px;
+  margin: -10px;
+  cursor: pointer;
 }
 
 .task-text {
@@ -1008,6 +1070,69 @@ select {
   pointer-events: auto;
 }
 
+/* Phones: the calendar becomes a bottom sheet that slides up from the
+   bottom edge, with the page dimmed behind it */
+.cal.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  padding: 28px 20px calc(24px + env(safe-area-inset-bottom));
+  background: var(--card-bg);
+  border: none;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 32px var(--card-shadow);
+  opacity: 1;
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.cal.sheet.open {
+  transform: none;
+}
+
+/* Little grab handle at the top of the sheet */
+.cal.sheet::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+.cal.sheet .cal-title {
+  font-size: 1.25rem;
+  margin-bottom: 16px;
+}
+
+.cal.sheet .cal-grid {
+  gap: 6px;
+}
+
+.cal.sheet .cal-day {
+  font-size: 1rem;
+}
+
+.cal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.cal-backdrop.open {
+  opacity: 1;
+}
+
 .cal-title {
   font-family: "Fraunces", Georgia, serif;
   font-size: 1.1rem;
@@ -1087,7 +1212,8 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .cal,
-  .cal-day {
+  .cal-day,
+  .cal-backdrop {
     transition: none;
   }
 }
@@ -1115,4 +1241,295 @@ select {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin-top: 16px;
+}
+
+/* =====================================================================
+   Phones (640px wide and narrower)
+   ===================================================================== */
+@media (max-width: 640px) {
+  /* Less empty space around the page; respect notches and home bars */
+  body {
+    padding: calc(12px + env(safe-area-inset-top)) 10px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  .app {
+    padding: 20px 16px;
+    border-radius: 16px;
+  }
+
+  .app-header {
+    margin-bottom: 14px;
+  }
+
+  h1 {
+    font-size: 1.65rem;
+  }
+
+  /* Lighter background: one fewer light and less blur keeps scrolling smooth */
+  .aurora span:nth-child(3) {
+    display: none;
+  }
+
+  .app,
+  .stats {
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  /* ----- Progress: moved inside the list card (by script.js) as a compact strip ----- */
+  .app > .stats {
+    padding: 0;
+    margin-bottom: 14px;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .app > .stats::before {
+    display: none;
+  }
+
+  .stats-title {
+    display: none;
+  }
+
+  .stats-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 14px 8px 10px;
+    font-size: 0.95rem;
+    color: var(--text);
+    text-align: left;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+  }
+
+  .mini-ring {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    overflow: visible;
+    transform: rotate(-90deg); /* start the ring at the top */
+  }
+
+  .mini-track,
+  .mini-fill {
+    fill: none;
+    stroke-width: 4;
+  }
+
+  .mini-track {
+    stroke: var(--track);
+  }
+
+  .mini-fill {
+    stroke-linecap: round;
+    stroke-dasharray: 100 100;
+    stroke-dashoffset: 100;
+    filter: drop-shadow(0 0 3px var(--mini-glow, transparent));
+    transition: stroke-dashoffset 0.6s cubic-bezier(0.65, 0, 0.35, 1),
+      stroke 0.6s ease, opacity 0.3s ease, filter 0.6s ease;
+  }
+
+  .mini-label {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mini-pct {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+
+  .mini-count {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+
+  .mini-chevron {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform 0.35s ease;
+  }
+
+  .stats.expanded .mini-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* Folded shut until the summary is tapped */
+  .stats-collapse {
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  .stats.expanded .stats-collapse {
+    grid-template-rows: 1fr;
+  }
+
+  .stats-collapse-inner {
+    overflow: hidden;
+  }
+
+  .stats-body {
+    padding-top: 12px;
+  }
+
+  /* ----- Tabs ----- */
+  .tab {
+    padding: 9px 14px;
+  }
+
+  /* ----- Add box: input + round "+" button; the date chip gets its own line ----- */
+  .task-form {
+    flex-wrap: wrap;
+    row-gap: 0;
+    margin-bottom: 16px;
+  }
+
+  .task-form button[type="submit"] {
+    flex: 0 0 46px;
+    width: 46px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.7rem;
+    font-weight: 400;
+    line-height: 1;
+  }
+
+  .add-text {
+    display: none;
+  }
+
+  .add-plus {
+    display: inline;
+  }
+
+  /* The date chip slides open on a line below instead of beside the input */
+  .form-picker {
+    order: 3;
+    flex: 0 0 100%;
+    max-width: none;
+    max-height: 48px;
+    margin: 10px 0 0;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
+  }
+
+  .form-picker.collapsed {
+    max-width: none;
+    max-height: 0;
+    margin: 0;
+  }
+
+  .form-picker .date-chip {
+    height: 38px;
+    font-size: 0.9rem;
+  }
+
+  /* ----- Task rows: the date moves under the task name ----- */
+  .task-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "check text del"
+      ".     date del";
+    column-gap: 14px;
+    row-gap: 4px;
+    padding: 12px 0;
+  }
+
+  .task-item .check-hit {
+    grid-area: check;
+  }
+
+  .task-item input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+  }
+
+  .task-item .task-text {
+    grid-area: text;
+  }
+
+  .task-item .date-picker {
+    grid-area: date;
+    justify-self: start;
+  }
+
+  .task-item .date-chip {
+    font-size: 0.75rem;
+    padding: 2px 9px;
+  }
+
+  /* Bigger, easier-to-hit delete button */
+  .delete-btn {
+    grid-area: del;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    font-size: 1.4rem;
+  }
+}
+
+/* =====================================================================
+   Touch screens: no hover, so stop hover styles "sticking" after a tap
+   ===================================================================== */
+@media (hover: none) {
+  .tab:not(.active):hover {
+    color: var(--text-muted);
+    background: none;
+  }
+
+  .theme-toggle:hover {
+    background: none;
+  }
+
+  .date-chip:not(.overdue):hover {
+    color: var(--text-muted);
+    background: var(--input-bg);
+  }
+
+  .form-picker .date-chip:hover {
+    color: var(--text);
+  }
+
+  .delete-btn:hover {
+    color: var(--text-done);
+    background: none;
+  }
+
+  /* Brief feedback while a finger is down instead */
+  .delete-btn:active {
+    color: var(--danger);
+    background: var(--danger-bg);
+  }
+
+  .cal-day:hover:not(:disabled) {
+    background: none;
+    transform: none;
+  }
+
+  .cal-day.selected:hover {
+    background: var(--accent);
+  }
+
+  .task-form button[type="submit"]:hover {
+    background: var(--accent);
+  }
+
+  .task-form button[type="submit"]:active {
+    background: var(--accent-hover);
+  }
 }

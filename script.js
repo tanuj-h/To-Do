@@ -106,6 +106,9 @@ const tabs = document.getElementById("list-tabs");
 const viewport = document.getElementById("list-viewport");
 const track = document.getElementById("list-track");
 
+// Matches the phone layout in style.css
+const PHONE = window.matchMedia("(max-width: 640px)");
+
 // Each task looks like:
 // { id: number, text: string, done: boolean, date: "YYYY-MM-DD", completedAt: ISO string | null }
 let tasks = loadTasks();
@@ -218,6 +221,12 @@ cal.setAttribute("aria-label", "Choose a date");
 cal.hidden = true;
 document.body.appendChild(cal);
 
+// Dims the page behind the calendar when it opens as a bottom sheet (phones)
+const calBackdrop = document.createElement("div");
+calBackdrop.className = "cal-backdrop";
+calBackdrop.hidden = true;
+document.body.appendChild(calBackdrop);
+
 let calAnchor = null; // the chip the calendar is open for
 let calHideTimer = null;
 
@@ -293,16 +302,30 @@ function toggleCalendar(chip, { value, min, max }, onPick) {
   }
 
   cal.replaceChildren(title, grid);
+  // On phones it opens as a bottom sheet over a dimmed page
+  const asSheet = PHONE.matches;
+  cal.classList.toggle("sheet", asSheet);
+  cal.classList.remove("above");
   cal.hidden = false;
+  calBackdrop.hidden = !asSheet;
   positionCalendar();
 
   // Next frame: fade and slide in
-  requestAnimationFrame(() => cal.classList.add("open"));
+  requestAnimationFrame(() => {
+    cal.classList.add("open");
+    if (asSheet) calBackdrop.classList.add("open");
+  });
   (selectedBtn || grid.querySelector(".cal-day:not(:disabled)"))?.focus({ preventScroll: true });
 }
 
 // Below the chip, lined up with its right edge; above it if there's no room below
 function positionCalendar() {
+  // A bottom sheet is pinned to the bottom of the screen by the CSS
+  if (cal.classList.contains("sheet")) {
+    cal.style.left = "";
+    cal.style.top = "";
+    return;
+  }
   const r = calAnchor.getBoundingClientRect();
   const w = cal.offsetWidth;
   const h = cal.offsetHeight;
@@ -323,9 +346,14 @@ function closeCalendar(instant = false) {
   if (!calAnchor) return;
   calAnchor = null;
   cal.classList.remove("open");
+  calBackdrop.classList.remove("open");
   clearTimeout(calHideTimer);
-  if (instant || reduceMotion.matches) cal.hidden = true;
-  else calHideTimer = setTimeout(() => (cal.hidden = true), 200);
+  const hide = () => {
+    cal.hidden = true;
+    calBackdrop.hidden = true;
+  };
+  if (instant || reduceMotion.matches) hide();
+  else calHideTimer = setTimeout(hide, 320); // after the close animation
 }
 
 // Close when clicking elsewhere, pressing Escape, or resizing the window
@@ -339,7 +367,14 @@ document.addEventListener("keydown", (e) => {
     chip.focus();
   }
 });
-window.addEventListener("resize", () => closeCalendar(true));
+// Only when the width changes: phones fire "resize" just from the address
+// bar sliding in and out while scrolling, which shouldn't close the sheet
+let lastWidth = window.innerWidth;
+window.addEventListener("resize", () => {
+  if (window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+  closeCalendar(true);
+});
 
 // Tabs are built once and then updated in place, so their changes can animate
 const tabButtons = new Map(); // list id -> { tab, count }
@@ -356,8 +391,27 @@ function positionTabGlow() {
   tabGlow.style.transform = `translate(${tab.offsetLeft}px, ${tab.offsetTop}px)`;
 }
 
-// Tabs change width when their badge grows or shrinks; keep the glow fitted
-const tabResizeWatcher = new ResizeObserver(() => positionTabGlow());
+// Fade whichever edge of the tab row has more tabs hidden past it
+function updateTabFades() {
+  const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+  tabs.classList.toggle("fade-left", tabs.scrollLeft > 2);
+  tabs.classList.toggle("fade-right", tabs.scrollLeft < maxScroll - 2);
+}
+tabs.addEventListener("scroll", updateTabFades, { passive: true });
+
+// Scroll the tab row so the selected tab sits in the middle (only matters
+// when the tabs don't all fit, e.g. on phones)
+function revealActiveTab(smooth = true) {
+  const { tab } = tabButtons.get(activeList);
+  const left = tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2;
+  tabs.scrollTo({ left: Math.max(0, left), behavior: smooth && !reduceMotion.matches ? "smooth" : "auto" });
+}
+
+// Tabs change width when their badge grows or shrinks; keep the glow and fades fitted
+const tabResizeWatcher = new ResizeObserver(() => {
+  positionTabGlow();
+  updateTabFades();
+});
 
 function buildTabs() {
   tabs.appendChild(tabGlow);
@@ -378,6 +432,7 @@ function buildTabs() {
     tabButtons.set(l.id, { tab, count });
     tabResizeWatcher.observe(tab);
   }
+  tabResizeWatcher.observe(tabs); // the row itself resizes with the window
 }
 
 function renderTabs() {
@@ -440,7 +495,12 @@ function createTaskItem(task) {
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = task.done;
+  checkbox.setAttribute("aria-label", `Done: ${task.text}`);
   checkbox.addEventListener("change", () => toggleTask(task.id, li));
+  // A label around it gives the checkbox a larger area to tap
+  const checkHit = document.createElement("label");
+  checkHit.className = "check-hit";
+  checkHit.appendChild(checkbox);
 
   // Outer span takes the free space; inner span carries the animated strike line
   const text = document.createElement("span");
@@ -466,9 +526,10 @@ function createTaskItem(task) {
   deleteBtn.className = "delete-btn";
   deleteBtn.textContent = "×";
   deleteBtn.title = "Delete task";
+  deleteBtn.setAttribute("aria-label", `Delete: ${task.text}`);
   deleteBtn.addEventListener("click", () => deleteTask(task.id));
 
-  li.append(checkbox, text, picker.wrap, deleteBtn);
+  li.append(checkHit, text, picker.wrap, deleteBtn);
   return li;
 }
 
@@ -549,6 +610,52 @@ const gaugeTotal = document.getElementById("gauge-total");
 const gaugeLabel = document.getElementById("gauge-label");
 const statBars = document.getElementById("stat-bars");
 const barParts = []; // one { pct, done, total, fill } per period
+
+// Phones: a compact one-line summary (mini ring, %, count) that opens the full panel
+const statsSummary = document.getElementById("stats-summary");
+const miniFill = document.getElementById("mini-fill");
+const miniLabel = document.getElementById("mini-label");
+const miniPct = document.getElementById("mini-pct");
+const miniDone = document.getElementById("mini-done");
+const miniTotal = document.getElementById("mini-total");
+const STATS_OPEN_KEY = "todo-stats-open";
+
+function setStatsExpanded(open) {
+  stats.classList.toggle("expanded", open);
+  statsSummary.setAttribute("aria-expanded", String(open));
+}
+
+statsSummary.addEventListener("click", () => {
+  const open = !stats.classList.contains("expanded");
+  setStatsExpanded(open);
+  try {
+    localStorage.setItem(STATS_OPEN_KEY, open ? "1" : "0");
+  } catch {}
+});
+
+try {
+  setStatsExpanded(localStorage.getItem(STATS_OPEN_KEY) === "1");
+} catch {
+  setStatsExpanded(false);
+}
+
+// On phones the progress panel moves inside the list card, just under the
+// title, so your tasks stay near the top. On wider screens it goes back to
+// being its own card beside (or above) the list.
+const layout = document.querySelector(".layout");
+const appHeader = document.querySelector(".app-header");
+
+function placeStats() {
+  if (PHONE.matches) appHeader.after(stats);
+  else layout.appendChild(stats);
+}
+placeStats();
+PHONE.addEventListener("change", () => {
+  placeStats();
+  positionTrack();
+  positionTabGlow();
+  updateTabFades();
+});
 
 function buildBars() {
   for (const listId of PERIODS) {
@@ -774,6 +881,20 @@ function renderStats() {
   rollTo(gaugeTotal, g.total);
   gaugeLabel.textContent = listName(activeList);
 
+  // Phone summary strip: same numbers, small ring
+  miniFill.style.strokeDashoffset = 100 - g.pct;
+  miniFill.style.stroke = gColor;
+  miniFill.style.opacity = g.pct > 0 ? 1 : 0;
+  statsSummary.style.setProperty("--mini-glow", glowColor(g.pct));
+  miniLabel.textContent = listName(activeList);
+  spinTo(miniPct, g.pct);
+  rollTo(miniDone, g.done);
+  rollTo(miniTotal, g.total);
+  statsSummary.setAttribute(
+    "aria-label",
+    `${listName(activeList)}: ${g.pct}% done, ${g.done} of ${g.total} tasks. Show progress details`
+  );
+
   // Bars: today / this week / this month
   PERIODS.forEach((listId, i) => {
     const p = progressFor(listId);
@@ -829,7 +950,7 @@ function relaxLights() {
 }
 
 // The calendar pop-up lives outside the card in the page, but belongs to it
-const insideFrame = (el) => appFrame.contains(el) || cal.contains(el);
+const insideFrame = (el) => appFrame.contains(el) || cal.contains(el) || el === calBackdrop;
 
 document.addEventListener("pointerdown", (e) => {
   if (!insideFrame(e.target)) relaxLights();
@@ -906,6 +1027,7 @@ function switchList(id) {
   formDate = null; // each list starts with its own default date
   saveActiveList();
   render();
+  revealActiveTab();
   // Focus stays on the tab you clicked; the add-task box only lights up
   // when you click or tab into it yourself
 }
@@ -1022,6 +1144,83 @@ form.addEventListener("submit", (event) => {
 // Keep the viewport height right if the window is resized (text may rewrap)
 window.addEventListener("resize", positionTrack);
 
+// ----- Swipe between lists (touch screens) -----
+// Drag the list sideways: it follows your finger, then slides on to the
+// next or previous list if you swiped far or fast enough, or springs back.
+// Up/down movement is left to the browser for normal scrolling.
+
+let swipe = null;
+let justSwiped = false;
+
+const activeIndex = () => LISTS.findIndex((l) => l.id === activeList);
+
+viewport.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch" || !e.isPrimary) return;
+  swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, start: performance.now(), active: false };
+});
+
+viewport.addEventListener("pointermove", (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x;
+  const dy = e.clientY - swipe.y;
+
+  if (!swipe.active) {
+    // Mostly vertical: it's a scroll, not a swipe
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+      swipe = null;
+      return;
+    }
+    // Wait until it's clearly sideways before taking over
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    swipe.active = true;
+    viewport.setPointerCapture(e.pointerId);
+    track.style.transition = "none"; // follow the finger exactly
+    closeCalendar(true);
+  }
+
+  // Past the first or last list, the drag resists (moves at a third of the speed)
+  const index = activeIndex();
+  const atEnd = (index === 0 && dx > 0) || (index === LISTS.length - 1 && dx < 0);
+  swipe.dx = atEnd ? dx / 3 : dx;
+  track.style.transform = `translateX(calc(-${index * 100}% + ${swipe.dx}px))`;
+});
+
+function endSwipe(e) {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const s = swipe;
+  swipe = null;
+  if (!s.active) return;
+
+  track.style.transition = ""; // let it animate from where the finger left it
+  const index = activeIndex();
+  const elapsed = Math.max(1, performance.now() - s.start);
+  const far = Math.abs(s.dx) > viewport.offsetWidth * 0.25;
+  const fast = Math.abs(s.dx) > 40 && Math.abs(s.dx) / elapsed > 0.5; // a quick flick
+  let target = index;
+  if (far || fast) target = s.dx < 0 ? index + 1 : index - 1;
+  target = Math.max(0, Math.min(LISTS.length - 1, target));
+
+  // Don't let the end of a swipe count as a tap on a task underneath
+  justSwiped = true;
+  setTimeout(() => (justSwiped = false), 50);
+
+  if (target !== index) switchList(LISTS[target].id);
+  else positionTrack(); // spring back
+}
+
+viewport.addEventListener("pointerup", endSwipe);
+viewport.addEventListener("pointercancel", endSwipe);
+viewport.addEventListener(
+  "click",
+  (e) => {
+    if (justSwiped) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  },
+  true
+);
+
 // Roll the lists over when the day changes (checked every minute and when
 // you come back to the tab), so tomorrow's tasks move into Today by themselves
 function checkForNewDay() {
@@ -1064,6 +1263,8 @@ buildTabs();
 buildPanels();
 buildBars();
 render();
+revealActiveTab(false); // e.g. reopening on "This Month" on a phone
+updateTabFades();
 
 // Start with nothing focused, even if the browser tries to restore focus to
 // the box after a refresh or when coming back with the Back button
@@ -1080,5 +1281,11 @@ requestAnimationFrame(() => {
   });
 });
 
-// Web fonts can change text height once they finish loading
-if (document.fonts) document.fonts.ready.then(positionTrack);
+// Web fonts can change text height (and tab widths) once they finish loading
+if (document.fonts) {
+  document.fonts.ready.then(() => {
+    positionTrack();
+    revealActiveTab(false);
+    updateTabFades();
+  });
+}
