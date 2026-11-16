@@ -1,5 +1,6 @@
 // Keys used to save data in the browser's localStorage
-const STORAGE_KEY = "todo-tasks";
+const STORAGE_KEY = "todo-tasks"; // guest tasks
+const CLOUD_CACHE_KEY = "todo-cloud-tasks"; // this device's copy of your account's tasks
 const ACTIVE_LIST_KEY = "todo-active-list";
 const THEME_KEY = "todo-theme";
 
@@ -113,9 +114,20 @@ const PHONE = window.matchMedia("(max-width: 640px)");
 // { id: string, text: string, done: boolean, date: "YYYY-MM-DD",
 //   completedAt: ISO string | null, createdAt: ISO string }
 // The id is a random UUID, so tasks made on different devices never clash.
-const loaded = loadTasks();
-let tasks = loaded.tasks;
-if (loaded.converted) saveTasks(); // store older tasks in the current shape, once
+let tasks = [];
+
+// Whose tasks are on screen: the signed-in account's id, or null for this
+// device's guest tasks. Starts from the sign-in saved on this device;
+// sync.js confirms it once it has loaded.
+let accountId = null;
+
+// Signed in: changes the cloud hasn't confirmed yet (sync.js sends them up).
+// Each changed task's id maps to the changeCount when it last changed, so a
+// change made while an earlier one is still sending isn't taken as sent.
+const unsynced = { saved: new Map(), deleted: new Set() };
+let changeCount = 0;
+
+useAccount(document.documentElement.dataset.account === "user" ? (savedUser()?.id ?? null) : null);
 let activeList = loadActiveList();
 
 // ----- Saving and loading -----
@@ -146,45 +158,136 @@ function newId() {
   );
 }
 
-// Returns the saved tasks, and whether any had to be converted from an older shape
-function loadTasks() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-    let converted = false;
+// Brings tasks saved in older shapes up to date. Returns them, and whether
+// any had to change.
+function normalizeTasks(saved) {
+  let converted = false;
 
-    const loadedTasks = parsed.map(({ list, ...t }) => {
-      // Older tasks used the moment they were added (a number) as their id.
-      // They get a random id instead, and that moment becomes createdAt, so
-      // the list keeps the same order.
-      if (typeof t.id === "number") {
-        const made = new Date(t.id);
-        t.createdAt = Number.isNaN(made.getTime()) ? new Date().toISOString() : made.toISOString();
-        t.id = newId();
-        converted = true;
-      }
-      if (!t.date || !t.createdAt) converted = true;
+  const normalized = saved.map(({ list, ...t }) => {
+    // Older tasks used the moment they were added (a number) as their id.
+    // They get a random id instead, and that moment becomes createdAt, so
+    // the list keeps the same order.
+    if (typeof t.id === "number") {
+      const made = new Date(t.id);
+      t.createdAt = Number.isNaN(made.getTime()) ? new Date().toISOString() : made.toISOString();
+      t.id = newId();
+      converted = true;
+    }
+    if (!t.date || !t.createdAt) converted = true;
 
-      return {
-        ...t,
-        date: t.date || dateForOldList(list),
-        completedAt: t.completedAt ?? null,
-        createdAt: t.createdAt ?? new Date().toISOString(),
-      };
-    });
+    return {
+      ...t,
+      date: t.date || dateForOldList(list),
+      completedAt: t.completedAt ?? null,
+      createdAt: t.createdAt ?? new Date().toISOString(),
+    };
+  });
 
-    return { tasks: loadedTasks, converted };
-  } catch {
-    return { tasks: [], converted: false };
-  }
+  return { tasks: normalized, converted };
 }
 
-function saveTasks() {
+// This device's guest tasks. Older ones are converted once and saved back,
+// so they keep the same ids from then on.
+function readGuestTasks() {
+  let saved = [];
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch {}
+  const { tasks: guestTasks, converted } = normalizeTasks(Array.isArray(saved) ? saved : []);
+  if (converted) writeGuestTasks(guestTasks);
+  return guestTasks;
+}
+
+function writeGuestTasks(list) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   } catch {
     // Storage unavailable (e.g. private mode); tasks just won't persist
   }
+}
+
+// Called once they've joined your account (see sync.js)
+function clearGuestTasks() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+}
+
+// This device's copy of an account's tasks, if it has one for that account
+function readCloudCache(userId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(CLOUD_CACHE_KEY));
+    return cache && cache.userId === userId ? cache : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearCloudCache() {
+  try {
+    localStorage.removeItem(CLOUD_CACHE_KEY);
+  } catch {}
+}
+
+// Switches whose tasks are on screen: an account's (by id) or, with null,
+// this device's guest tasks. Call render() afterwards.
+function useAccount(id) {
+  accountId = id;
+  unsynced.saved.clear();
+  unsynced.deleted.clear();
+
+  const cache = id ? readCloudCache(id) : null;
+  if (cache) {
+    tasks = normalizeTasks(Array.isArray(cache.tasks) ? cache.tasks : []).tasks;
+    for (const taskId of cache.unsaved || []) unsynced.saved.set(taskId, ++changeCount);
+    for (const taskId of cache.deleted || []) unsynced.deleted.add(taskId);
+  } else {
+    // Guest mode, or signed in with no copy here yet: show the guest tasks
+    // (when signed in, they're about to join the account)
+    tasks = readGuestTasks();
+  }
+}
+
+// Saves the tasks on this device: as the account's copy when signed in
+// (with the changes still waiting to go up), otherwise as guest tasks
+function saveTasks() {
+  if (!accountId) {
+    writeGuestTasks(tasks);
+    return;
+  }
+  try {
+    localStorage.setItem(
+      CLOUD_CACHE_KEY,
+      JSON.stringify({
+        userId: accountId,
+        tasks,
+        unsaved: [...unsynced.saved.keys()],
+        deleted: [...unsynced.deleted],
+      })
+    );
+  } catch {}
+}
+
+const taskById = (id) => tasks.find((t) => t.id === id);
+
+// Call after adding or changing a task: saves it here and, when signed in,
+// marks it to go up to the cloud
+function taskChanged(id) {
+  changeCount++;
+  if (accountId) unsynced.saved.set(id, changeCount);
+  saveTasks();
+  if (accountId && typeof scheduleFlush === "function") scheduleFlush();
+}
+
+// Call after deleting a task (same idea)
+function taskDeleted(id) {
+  changeCount++;
+  if (accountId) {
+    unsynced.saved.delete(id);
+    unsynced.deleted.add(id);
+  }
+  saveTasks();
+  if (accountId && typeof scheduleFlush === "function") scheduleFlush();
 }
 
 function loadActiveList() {
@@ -1072,15 +1175,16 @@ function switchList(id) {
 function addTask(text) {
   const l = listById(activeList);
   const date = l.pick ? formDate : l.range().min;
-  tasks.push({
+  const task = {
     id: newId(),
     text,
     done: false,
     date,
     completedAt: null,
     createdAt: new Date().toISOString(),
-  });
-  saveTasks();
+  };
+  tasks.push(task);
+  taskChanged(task.id);
   render();
 }
 
@@ -1098,7 +1202,7 @@ function toggleTask(id, li) {
   task.done = !task.done;
   // Remember when it was finished (for progress history later)
   task.completedAt = task.done ? new Date().toISOString() : null;
-  saveTasks();
+  taskChanged(id);
 
   // 1. Draw (or erase) the strike line on the existing row
   li.classList.toggle("done", task.done);
@@ -1135,8 +1239,9 @@ function sparkle(el) {
   setTimeout(() => burst.remove(), 800);
 }
 
-// Re-renders, then animates each visible task from its old position to its new one
-function renderWithMove() {
+// Re-renders, then animates each visible task from its old position to its
+// new one. With fadeInNew, tasks that weren't there before fade in.
+function renderWithMove(fadeInNew = false) {
   const oldTops = new Map();
   for (const li of track.querySelectorAll(".list-panel:not([inert]) .task-item")) {
     oldTops.set(li.dataset.id, li.getBoundingClientRect().top);
@@ -1147,7 +1252,10 @@ function renderWithMove() {
 
   for (const li of track.querySelectorAll(".list-panel:not([inert]) .task-item")) {
     const oldTop = oldTops.get(li.dataset.id);
-    if (oldTop === undefined) continue;
+    if (oldTop === undefined) {
+      if (fadeInNew) li.classList.add("appear");
+      continue;
+    }
     const shift = oldTop - li.getBoundingClientRect().top;
     if (shift === 0) continue;
 
@@ -1164,14 +1272,14 @@ function changeDate(id, date) {
   const task = tasks.find((t) => t.id === id);
   if (task && task.date !== date) {
     task.date = date;
-    saveTasks();
+    taskChanged(id);
     renderWithMove(); // tasks glide to their new spots if the order changed
   }
 }
 
 function deleteTask(id) {
   tasks = tasks.filter((t) => t.id !== id);
-  saveTasks();
+  taskDeleted(id);
   render();
 }
 
@@ -1340,6 +1448,7 @@ const syncLoaded = new Promise((resolve) => {
 });
 
 let screenTimer = null;
+let screenTarget = null; // where a switch in progress is heading
 let enterTimer = null;
 
 // The list measures as zero while it's hidden, so lay it out again once shown
@@ -1361,6 +1470,7 @@ function refreshLayout() {
 // Switches to "signin" or "app": the current card shrinks away, then the
 // other rises in. afterSwap runs once the old card is out of sight.
 function showScreen(name, afterSwap) {
+  if (screenTimer && screenTarget === name) return; // already on its way there
   const current = root.dataset.screen;
   const leaving = current === "app" ? layout : signinCard;
 
@@ -1383,6 +1493,7 @@ function showScreen(name, afterSwap) {
 
   const swap = () => {
     screenTimer = null;
+    screenTarget = null;
     leaving.classList.remove("leaving");
     root.dataset.screen = name;
     if (leaving === signinCard) setSigningIn(false); // reset it while it's hidden
@@ -1400,6 +1511,7 @@ function showScreen(name, afterSwap) {
     swap();
   } else {
     leaving.classList.add("leaving");
+    screenTarget = name;
     screenTimer = setTimeout(swap, SCREEN_LEAVE_MS);
   }
 }
@@ -1555,13 +1667,23 @@ function onAccountChange(user) {
   cleanAuthParamsFromUrl();
 
   if (user) {
+    // Just signed in (or as someone else): show that account's tasks
+    if (accountId !== user.id) {
+      useAccount(user.id);
+      render();
+    }
     showAccount(user);
     setGuestMode(false);
     hideSigninError();
     showScreen("app");
   } else if (wasSignedIn) {
-    // Signed out: the header keeps your avatar until the list is out of sight
-    showScreen("signin", () => showAccount(null));
+    // Signed out: the list keeps your avatar and tasks until it's out of
+    // sight, then switches to this device's guest tasks
+    showScreen("signin", () => {
+      showAccount(null);
+      useAccount(null);
+      render();
+    });
   } else if (isSigningIn()) {
     setSigningIn(false);
     showSigninError("Sign-in didn't finish. Please try again.");
@@ -1574,6 +1696,43 @@ function onCloudUnavailable() {
     setSigningIn(false);
     showSigninError("Couldn't reach the sign-in service. Check your connection and try again.");
   }
+}
+
+// ----- Tasks arriving from the cloud -----
+
+// Two task lists hold the same tasks (in any order)
+const taskKey = (t) => JSON.stringify([t.id, t.text, t.done, t.date, t.completedAt, t.createdAt]);
+function sameTasks(a, b) {
+  if (a.length !== b.length) return false;
+  const keys = new Set(a.map(taskKey));
+  return b.every((t) => keys.has(taskKey(t)));
+}
+
+// sync.js hands over the account's tasks as the cloud has them. Tasks with
+// changes still on their way up (the keepLocal ids) stay as they are here.
+function applyCloudTasks(cloudTasks, keepLocal) {
+  const next = cloudTasks.filter((t) => !keepLocal.has(t.id));
+  for (const id of keepLocal) {
+    const t = taskById(id);
+    if (t) next.push(t);
+  }
+  if (sameTasks(tasks, next)) return; // nothing new: leave the list (and any animation) alone
+  tasks = next;
+  saveTasks();
+  renderWithMove(true); // tasks glide to their new places; new ones fade in
+}
+
+// ----- Toast: a short message that slides up from the bottom -----
+
+const toast = document.getElementById("toast");
+const TOAST_MS = 4000; // how long it stays up
+let toastTimer = null;
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), TOAST_MS);
 }
 
 // Back from Google: still finishing, or it was cancelled / failed
