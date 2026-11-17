@@ -1,7 +1,7 @@
 // Keys used to save data in the browser's localStorage
 // The most tasks one account can keep in the cloud. The database enforces the
 // same number (the enforce_todo_limit rule in Supabase).
-const TASK_LIMIT = 1000;
+const TASK_LIMIT = 250;
 
 const STORAGE_KEY = "todo-tasks"; // guest tasks
 const CLOUD_CACHE_KEY = "todo-cloud-tasks"; // this device's copy of your account's tasks
