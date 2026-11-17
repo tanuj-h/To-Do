@@ -1,11 +1,13 @@
 // ----- Cloud sync (Supabase) -----
 // Everything that talks to Supabase lives here: signing in and out, and
-// keeping your account's tasks in the cloud.
+// keeping your account's tasks in the cloud and in step across devices.
 //
 // script.js owns the tasks on screen and on this device. When you change a
-// task it notes it in `unsynced` and calls scheduleFlush(); this file sends
-// those changes up, brings the cloud's copy down (applyCloudTasks), and
-// tells script.js who's signed in (onAccountChange).
+// task it notes it in `unsynced` and calls scheduleFlush(). This file sends
+// those changes up, brings the cloud's copy down (applyCloudTasks), passes on
+// live changes from your other devices (applyCloudChanges), and tells
+// script.js who's signed in (onAccountChange) and how syncing is going
+// (showSyncStatus).
 
 // The connection to Supabase, or null if the library couldn't load (for
 // example when offline). Guest mode works either way.
@@ -26,6 +28,8 @@ const FLUSH_DELAY_MS = 400; // wait this long after a change, so quick edits go 
 const RETRY_MIN_MS = 2000; // first retry after a failed sync...
 const RETRY_MAX_MS = 60000; // ...then doubling each time, up to this
 const SIGN_OUT_WAIT_MS = 5000; // how long signing out waits for changes to finish sending
+const LIVE_BATCH_MS = 60; // live changes arriving this close together are shown together
+const ECHO_WINDOW_MS = 10000; // how long this device remembers what it sent (see isStaleEcho)
 const TASK_COLUMNS = "id, text, done, due_date, completed_at, created_at";
 
 let syncUserId = null; // whose tasks are being synced, or null when not syncing
@@ -34,8 +38,27 @@ let retryTimer = null;
 let retryDelay = RETRY_MIN_MS;
 let flushing = null; // the save in progress, if any
 let syncing = null; // the full sync in progress, if any
+let lastSyncFailed = false; // the latest attempt to reach Supabase failed
+let liveChannel = null; // live connection bringing changes from your other devices
+let liveConnected = false;
+let liveTimer = null;
+const liveQueue = new Map(); // live changes waiting to be shown: id -> task, or null if deleted
+const sentKeys = new Map(); // id -> [{ key, at }]: what this device sent lately
 
 // ----- Tasks <-> database rows -----
+
+// Postgres times can have 6 decimal places and a short "+00" offset, which
+// not every browser can read (older Safari); this tidies them into plain ISO
+function toIso(ts) {
+  if (!ts) return null;
+  const d = new Date(
+    String(ts)
+      .replace(" ", "T")
+      .replace(/(\.\d{3})\d+/, "$1")
+      .replace(/([+-]\d\d)$/, "$1:00")
+  );
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 const toRow = (t) => ({
   id: t.id,
@@ -51,8 +74,8 @@ const fromRow = (r) => ({
   text: r.text,
   done: r.done,
   date: r.due_date,
-  completedAt: r.completed_at ? new Date(r.completed_at).toISOString() : null,
-  createdAt: new Date(r.created_at).toISOString(),
+  completedAt: toIso(r.completed_at),
+  createdAt: toIso(r.created_at) ?? new Date().toISOString(),
 });
 
 // ----- Syncing -----
@@ -62,6 +85,8 @@ function startCloudSync(userId) {
   if (!cloud || syncUserId === userId) return;
   syncUserId = userId;
   retryDelay = RETRY_MIN_MS;
+  lastSyncFailed = false;
+  listenForChanges(userId);
   syncNow();
 }
 
@@ -69,6 +94,12 @@ function stopCloudSync() {
   syncUserId = null;
   clearTimeout(flushTimer);
   clearTimeout(retryTimer);
+  clearTimeout(liveTimer);
+  liveQueue.clear();
+  if (liveChannel) cloud.removeChannel(liveChannel);
+  liveChannel = null;
+  liveConnected = false;
+  showSyncStatus(null);
 }
 
 // Brings this device and the cloud up to date: guest tasks join the account,
@@ -85,12 +116,20 @@ function syncNow() {
       }
     })().then((ok) => {
       syncing = null;
-      if (ok) retryDelay = RETRY_MIN_MS;
-      else scheduleRetry();
+      noteResult(ok);
       return ok;
     });
+    refreshSyncStatus();
   }
   return syncing;
+}
+
+// After each attempt to reach Supabase: on failure, try again a bit later
+function noteResult(ok) {
+  lastSyncFailed = !ok;
+  if (ok) retryDelay = RETRY_MIN_MS;
+  else scheduleRetry();
+  refreshSyncStatus();
 }
 
 function scheduleRetry() {
@@ -105,6 +144,7 @@ function scheduleFlush() {
   if (!syncUserId) return; // not syncing yet: startCloudSync sends everything waiting
   clearTimeout(flushTimer);
   flushTimer = setTimeout(flushPending, FLUSH_DELAY_MS);
+  refreshSyncStatus(); // "Saving…"
 }
 
 // Sends waiting changes now. Resolves true once nothing is left waiting.
@@ -116,9 +156,10 @@ function flushPending() {
       .catch(() => false)
       .then((ok) => {
         flushing = null;
-        if (!ok) scheduleRetry();
+        noteResult(ok);
         return ok;
       });
+    refreshSyncStatus();
   }
   return flushing;
 }
@@ -130,9 +171,10 @@ async function sendUnsynced() {
     const saving = [...unsynced.saved];
     const deleting = [...unsynced.deleted];
 
-    const rows = saving.map(([id]) => taskById(id)).filter(Boolean).map(toRow);
-    if (rows.length) {
-      const { error } = await cloud.from("todos").upsert(rows);
+    const sending = saving.map(([id]) => taskById(id)).filter(Boolean);
+    sending.forEach(rememberSent);
+    if (sending.length) {
+      const { error } = await cloud.from("todos").upsert(sending.map(toRow));
       if (error) return false;
     }
     if (deleting.length) {
@@ -185,8 +227,91 @@ async function uploadGuestTasks() {
   return true;
 }
 
+// ----- Live changes from your other devices -----
+
+function listenForChanges(userId) {
+  const channel = cloud
+    .channel(`todos:${userId}`)
+    // The database's security rules let only your own tasks through
+    // (deletions arrive as just an id, which is all that's needed)
+    .on("postgres_changes", { event: "*", schema: "public", table: "todos" }, onLiveChange)
+    .subscribe((status) => {
+      if (channel !== liveChannel) return; // an old connection closing
+      const wasConnected = liveConnected;
+      liveConnected = status === "SUBSCRIBED";
+      // (Re)connected: catch up on anything missed while not listening
+      if (liveConnected && !wasConnected) syncNow();
+      refreshSyncStatus();
+    });
+  liveChannel = channel;
+}
+
+function onLiveChange(payload) {
+  if (!syncUserId) return;
+  if (payload.eventType === "DELETE") {
+    if (payload.old?.id) liveQueue.set(payload.old.id, null);
+  } else {
+    const row = payload.new;
+    if (!row?.id || row.user_id !== syncUserId) return;
+    const task = fromRow(row);
+    if (isStaleEcho(task)) return;
+    liveQueue.set(task.id, task);
+  }
+  // Changes arriving together (say, several from another device) are shown together
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    const changes = new Map(liveQueue);
+    liveQueue.clear();
+    applyCloudChanges(changes);
+  }, LIVE_BATCH_MS);
+}
+
+// Every save from this device also comes back over the live connection.
+// Usually that's harmless (it matches what's on screen), but if you change a
+// task twice in a row, the first save can come back after the second one has
+// gone up. Remembering what was sent lets that older echo be ignored, so the
+// task doesn't flick back for a moment.
+function rememberSent(task) {
+  const now = Date.now();
+  const recent = (sentKeys.get(task.id) || []).filter((s) => now - s.at < ECHO_WINDOW_MS);
+  recent.push({ key: taskKey(task), at: now });
+  sentKeys.set(task.id, recent);
+}
+
+function isStaleEcho(task) {
+  const now = Date.now();
+  const recent = (sentKeys.get(task.id) || []).filter((s) => now - s.at < ECHO_WINDOW_MS);
+  if (recent.length < 2) return false;
+  const key = taskKey(task);
+  return key !== recent[recent.length - 1].key && recent.some((s) => s.key === key);
+}
+
+// ----- Sync status (the dot on your avatar) -----
+
+function refreshSyncStatus() {
+  if (!syncUserId) return showSyncStatus(null);
+  const waiting = unsynced.saved.size > 0 || unsynced.deleted.size > 0;
+  if (!navigator.onLine) {
+    showSyncStatus("offline", waiting ? "Offline · changes will sync when you're back online" : "Offline");
+  } else if (lastSyncFailed) {
+    showSyncStatus("offline", "Can't reach the server · retrying");
+  } else if (waiting || flushing) {
+    showSyncStatus("saving", "Saving…");
+  } else if (syncing) {
+    showSyncStatus("saving", "Syncing…");
+  } else if (!liveConnected) {
+    showSyncStatus("saving", "Connecting…");
+  } else {
+    showSyncStatus("synced", "All changes synced");
+  }
+}
+
 // Catch up when the connection comes back, or when you come back to this tab
-window.addEventListener("online", () => syncNow());
+window.addEventListener("online", () => {
+  refreshSyncStatus();
+  syncNow();
+});
+window.addEventListener("offline", refreshSyncStatus);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) syncNow();
 });

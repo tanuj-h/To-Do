@@ -1690,8 +1690,12 @@ function onAccountChange(user) {
   }
 }
 
-// sync.js calls this if Supabase couldn't load (for example when offline)
+// sync.js calls this if Supabase couldn't load (for example when offline).
+// Signed in, you can keep working: changes wait here until it can connect.
 function onCloudUnavailable() {
+  if (root.dataset.account === "user") {
+    showSyncStatus("offline", "Offline · changes will sync when you're back online");
+  }
   if (isSigningIn()) {
     setSigningIn(false);
     showSigninError("Couldn't reach the sign-in service. Check your connection and try again.");
@@ -1718,8 +1722,70 @@ function applyCloudTasks(cloudTasks, keepLocal) {
   }
   if (sameTasks(tasks, next)) return; // nothing new: leave the list (and any animation) alone
   tasks = next;
+  changeCount++;
   saveTasks();
   renderWithMove(true); // tasks glide to their new places; new ones fade in
+}
+
+// Every row showing a task (it can be in several lists at once)
+const rowsFor = (id) => track.querySelectorAll(`.task-item[data-id="${CSS.escape(id)}"]`);
+
+// sync.js passes on live changes from your other devices: id -> the task as
+// it is now, or null if it was deleted. They play out like your own changes:
+// ticks get the strike-through, deleted tasks fade out, new ones fade in,
+// then everything glides into place.
+function applyCloudChanges(changes) {
+  let changed = false;
+  let pause = false; // something on screen needs a moment to animate first
+
+  for (const [id, task] of changes) {
+    // Changed here too and not sent yet: this device's version wins
+    if (unsynced.saved.has(id) || unsynced.deleted.has(id)) continue;
+    const current = taskById(id);
+
+    if (!task) {
+      if (!current) continue;
+      tasks = tasks.filter((t) => t.id !== id);
+      rowsFor(id).forEach((li) => li.classList.add("vanish"));
+      pause = true;
+    } else if (!current) {
+      tasks.push(task);
+    } else if (taskKey(current) !== taskKey(task)) {
+      if (current.done !== task.done) {
+        rowsFor(id).forEach((li) => li.classList.toggle("done", task.done));
+        pause = true;
+      }
+      Object.assign(current, task);
+    } else {
+      continue; // already showing exactly this
+    }
+    changed = true;
+  }
+  if (!changed) return;
+
+  changeCount++;
+  saveTasks();
+  renderTabs(); // counts roll straight away
+  renderStats();
+  clearTimeout(reorderTimer);
+  if (pause && !reduceMotion.matches) {
+    reorderTimer = setTimeout(() => renderWithMove(true), STRIKE_DURATION);
+  } else {
+    renderWithMove(true);
+  }
+}
+
+// ----- Sync status: the dot on your avatar, and the line in its menu -----
+
+const syncLabel = document.getElementById("sync-label");
+
+// sync.js reports "synced", "saving" or "offline" with a description, or
+// null when not syncing (signed out)
+function showSyncStatus(state, label = "") {
+  if (state) root.dataset.sync = state;
+  else delete root.dataset.sync;
+  syncLabel.textContent = label;
+  avatarBtn.title = label;
 }
 
 // ----- Toast: a short message that slides up from the bottom -----
