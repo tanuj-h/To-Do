@@ -2451,3 +2451,92 @@ select {
     transition: none;
   }
 }
+
+/* =====================================================================
+   Taps on touch screens
+   ===================================================================== */
+
+/* No blue flash. Phones light up the tapped element's whole rectangle,
+   which looks odd around round and pill-shaped buttons. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Instead, buttons press in slightly while your finger is on them and
+   spring back on release. ("scale" is separate from "transform", so it
+   doesn't clash with the hover and entrance effects that use transform.) */
+@media (hover: none) and (prefers-reduced-motion: no-preference) {
+  /* Each keeps its existing transitions, with the press added */
+  .theme-toggle,
+  .stats-summary,
+  .task-form button[type="submit"],
+  .delete-btn {
+    transition: scale 0.15s ease;
+  }
+
+  .tab,
+  .date-chip {
+    transition: background 0.2s, color 0.2s, border-color 0.2s, scale 0.15s ease;
+  }
+
+  .cal-day {
+    transition: background 0.15s, color 0.15s, transform 0.15s, scale 0.15s ease;
+  }
+
+  .signin-pill {
+    transition: background 0.2s, scale 0.15s ease;
+  }
+
+  .avatar-btn {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, scale 0.15s ease;
+  }
+
+  .btn-google {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, scale 0.15s ease;
+  }
+
+  .btn-guest,
+  .btn-secondary {
+    transition: background 0.2s, opacity 0.2s, scale 0.15s ease;
+  }
+
+  .btn-danger {
+    transition: background 0.2s, opacity 0.25s, box-shadow 0.25s, scale 0.15s ease;
+  }
+
+  /* Small round buttons press in the most... */
+  .theme-toggle:active,
+  .avatar-btn:active,
+  .cal-day:not(:disabled):active,
+  .delete-btn:active,
+  .task-form button[type="submit"]:active {
+    scale: 0.9;
+  }
+
+  /* ...pills and medium buttons a little... */
+  .tab:active,
+  .date-chip:active,
+  .signin-pill:active,
+  .btn-secondary:not(:disabled):active,
+  .btn-danger:not(:disabled):active {
+    scale: 0.95;
+  }
+
+  /* ...and wide buttons only just */
+  .stats-summary:active,
+  .btn-google:active,
+  .btn-guest:not(:disabled):active {
+    scale: 0.98;
+  }
+}
+
+/* Menu items get a soft tint while pressed (touch screens have no hover) */
+@media (hover: none) {
+  .menu-item:active {
+    background: var(--toggle-hover);
+  }
+
+  .menu-item.danger:active {
+    background: var(--danger-bg);
+  }
+}

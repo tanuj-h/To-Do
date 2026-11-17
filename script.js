@@ -1423,6 +1423,10 @@ function toggleTheme() {
 
 themeToggles.forEach((btn) => btn.addEventListener("click", toggleTheme));
 
+// iPhones only show the buttons' press effect (:active in style.css) when the
+// page listens for touches, so listen and do nothing
+document.addEventListener("touchstart", () => {}, { passive: true });
+
 applyTheme(document.documentElement.dataset.theme || "light");
 
 // ----- Sign-in page and account -----
