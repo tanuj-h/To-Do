@@ -1,4 +1,8 @@
 // Keys used to save data in the browser's localStorage
+// The most tasks one account can keep in the cloud. The database enforces the
+// same number (the enforce_todo_limit rule in Supabase).
+const TASK_LIMIT = 1000;
+
 const STORAGE_KEY = "todo-tasks"; // guest tasks
 const CLOUD_CACHE_KEY = "todo-cloud-tasks"; // this device's copy of your account's tasks
 const ACTIVE_LIST_KEY = "todo-active-list";
@@ -1172,7 +1176,15 @@ function switchList(id) {
   // when you click or tab into it yourself
 }
 
+// Returns false if the task couldn't be added (the account is full)
 function addTask(text) {
+  if (accountId && tasks.length >= TASK_LIMIT) {
+    showToast(
+      `Your account is full (${TASK_LIMIT.toLocaleString()} tasks). Delete some to add more.`,
+      "warning"
+    );
+    return false;
+  }
   const l = listById(activeList);
   const date = l.pick ? formDate : l.range().min;
   const task = {
@@ -1186,6 +1198,7 @@ function addTask(text) {
   tasks.push(task);
   taskChanged(task.id);
   render();
+  return true;
 }
 
 // ----- Completing tasks (with animation) -----
@@ -1286,8 +1299,8 @@ function deleteTask(id) {
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = input.value.trim();
-  if (text) {
-    addTask(text);
+  // If it couldn't be added, the text stays in the box
+  if (text && addTask(text)) {
     input.value = "";
     focusInputQuietly();
   }
@@ -1775,6 +1788,23 @@ function applyCloudChanges(changes) {
   }
 }
 
+// sync.js calls this if the cloud refused new tasks because the account is
+// full (only possible if several devices added tasks at once near the
+// limit). They come off this device too, with a message saying why.
+function dropTasksOverLimit(ids) {
+  const drop = new Set(ids);
+  tasks = tasks.filter((t) => !drop.has(t.id));
+  for (const id of drop) unsynced.saved.delete(id);
+  changeCount++;
+  saveTasks();
+  renderWithMove();
+  const n = drop.size;
+  showToast(
+    `Your account is full (${TASK_LIMIT.toLocaleString()} tasks), so ${n} new task${n === 1 ? "" : "s"} couldn't be saved.`,
+    "warning"
+  );
+}
+
 // ----- Sync status: the dot on your avatar, and the line in its menu -----
 
 const syncLabel = document.getElementById("sync-label");
@@ -1794,8 +1824,10 @@ const toast = document.getElementById("toast");
 const TOAST_MS = 4000; // how long it stays up
 let toastTimer = null;
 
-function showToast(message) {
+// kind: "success" (green tick) or "warning" (amber "!")
+function showToast(message, kind = "success") {
   toast.textContent = message;
+  toast.classList.toggle("warning", kind === "warning");
   toast.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove("show"), TOAST_MS);

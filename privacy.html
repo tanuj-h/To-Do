@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Privacy Policy · My To-Do List</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // Same theme as the rest of the site, applied before the page paints
+    (function () {
+      let theme = null;
+      try { theme = localStorage.getItem("todo-theme"); } catch {}
+      if (!theme) {
+        theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+  <!-- Contact email is a placeholder for now: replace contact@example.com
+       here and in terms.html when you have a real address -->
+  <main class="doc-card">
+    <a class="doc-back" href="./">← My To-Do List</a>
+
+    <h1>Privacy Policy</h1>
+    <p class="doc-updated">Last updated: 17 November 2026</p>
+
+    <p class="doc-summary">
+      <strong>The short version:</strong> the site stores only what it needs to keep your
+      tasks in sync. Nothing is sold or shared, and there are no ads or trackers.
+    </p>
+
+    <p>
+      My To-Do List (<a href="https://to-do-blond-omega.vercel.app/">to-do-blond-omega.vercel.app</a>)
+      is a small personal project run by Tanuj H. This page explains what the site
+      stores about you, where it's kept, and why.
+    </p>
+
+    <h2>Using it as a guest</h2>
+    <p>
+      If you choose <em>Continue as guest</em>, your tasks are saved only in your browser's
+      storage on that device. They're never sent anywhere. Clearing your browser's data
+      for this site deletes them.
+    </p>
+
+    <h2>Signing in with Google</h2>
+    <p>When you sign in, the site stores:</p>
+    <ul>
+      <li>
+        <strong>From your Google account:</strong> your name, your email address and a link
+        to your profile picture. Google shares these when you choose to sign in. The site
+        never sees your Google password.
+      </li>
+      <li>
+        <strong>Your tasks:</strong> each task's text, its date, whether it's done and when
+        you finished it, and when it was created or last changed.
+      </li>
+      <li>
+        <strong>Sign-in records:</strong> Supabase, which runs the sign-in, keeps basic
+        technical records of sign-ins (such as the time, IP address and browser) for
+        security.
+      </li>
+    </ul>
+    <p>
+      This is used only to sign you in and keep your tasks in sync across your devices.
+      It isn't used for advertising or profiling, and it isn't sold or shared with anyone.
+    </p>
+
+    <h2>Who can see your tasks</h2>
+    <p>
+      Only you. The database's security rules let each account read and change only its
+      own tasks. As the site's administrator, Tanuj H can technically access the database,
+      but won't look at your tasks unless you ask for help or it's needed to fix a problem.
+    </p>
+
+    <h2>Services the site relies on</h2>
+    <ul>
+      <li><strong>Supabase</strong> (supabase.com) stores your account and tasks, and runs sign-in.</li>
+      <li><strong>Google</strong> provides “Sign in with Google” and the site's fonts (Google Fonts), so your browser contacts Google's servers when the page loads.</li>
+      <li><strong>Vercel</strong> (vercel.com) hosts the website. Like most web hosts, it may log basic request details such as your IP address and browser.</li>
+      <li><strong>jsDelivr</strong> (jsdelivr.com) delivers the code library the site uses to talk to Supabase.</li>
+    </ul>
+    <p>Each of these handles data under its own privacy policy.</p>
+
+    <h2>Your browser's storage</h2>
+    <p>
+      The site doesn't use cookies. It uses your browser's local storage to remember your
+      theme (light or dark), which list you had open, your guest tasks, and your sign-in.
+      While you're signed in, it also keeps a copy of your tasks so the site opens quickly
+      and keeps working offline. Signing out removes that copy once all your changes have
+      been saved.
+    </p>
+
+    <h2>Keeping and deleting your data</h2>
+    <p>
+      Your data is kept until you delete it. You can delete any task at any time. To delete
+      your account and all of its tasks, email
+      <a href="mailto:contact@example.com">contact@example.com</a> from the address you
+      sign in with. It will be deleted within 30 days.
+    </p>
+
+    <h2>Children</h2>
+    <p>The site isn't meant for children under 13.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      If this policy changes, the new version will be posted here with a new date at the top.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about your privacy? Email
+      <a href="mailto:contact@example.com">contact@example.com</a>.
+    </p>
+
+    <footer class="doc-footer">
+      <a href="./">My To-Do List</a>
+      <a href="terms.html">Terms of Service</a>
+    </footer>
+  </main>
+</body>
+</html>

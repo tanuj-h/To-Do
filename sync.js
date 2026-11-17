@@ -44,6 +44,7 @@ let liveConnected = false;
 let liveTimer = null;
 const liveQueue = new Map(); // live changes waiting to be shown: id -> task, or null if deleted
 const sentKeys = new Map(); // id -> [{ key, at }]: what this device sent lately
+let guestTasksDidntFit = false; // some guest tasks were over the task limit (see uploadGuestTasks)
 
 // ----- Tasks <-> database rows -----
 
@@ -173,10 +174,7 @@ async function sendUnsynced() {
 
     const sending = saving.map(([id]) => taskById(id)).filter(Boolean);
     sending.forEach(rememberSent);
-    if (sending.length) {
-      const { error } = await cloud.from("todos").upsert(sending.map(toRow));
-      if (error) return false;
-    }
+    if (sending.length && !(await saveRows(sending.map(toRow)))) return false;
     if (deleting.length) {
       const { error } = await cloud.from("todos").delete().in("id", deleting);
       if (error) return false;
@@ -191,6 +189,39 @@ async function sendUnsynced() {
     saveTasks();
   }
   return true;
+}
+
+// ----- The task limit -----
+// The database refuses new tasks once an account has TASK_LIMIT of them.
+// script.js checks before adding, so this only comes up if several devices
+// add tasks at once near the limit, or a device's guest tasks don't all fit.
+
+const isLimitError = (error) => /task_limit_reached/.test(error?.message || "");
+
+// Saves rows to the cloud. If the account is full, the new tasks that don't
+// fit are taken off this device (with a message) and the rest are saved.
+// Resolves false if Supabase couldn't be reached.
+async function saveRows(rows) {
+  const { error } = await cloud.from("todos").upsert(rows);
+  if (!error) return true;
+  if (!isLimitError(error)) return false;
+  const overLimit = await upsertEach(rows);
+  if (!overLimit) return false;
+  if (overLimit.length) dropTasksOverLimit(overLimit);
+  return true;
+}
+
+// Saves rows one at a time. Returns the ids refused because of the limit,
+// or null if Supabase couldn't be reached.
+async function upsertEach(rows, options) {
+  const overLimit = [];
+  for (const row of rows) {
+    const { error } = await cloud.from("todos").upsert(row, options);
+    if (!error) continue;
+    if (!isLimitError(error)) return null;
+    overLimit.push(row.id);
+  }
+  return overLimit;
 }
 
 // Fetches the account's tasks and hands them to the page
@@ -210,20 +241,39 @@ async function pullFromCloud() {
 }
 
 // The first time you sign in on a device, its guest tasks join your account.
-// It never overwrites a task the account already has.
+// It never overwrites a task the account already has. If they don't all fit
+// under the task limit, the rest stay here as guest tasks.
 async function uploadGuestTasks() {
+  if (guestTasksDidntFit) return true; // already tried; don't nag on every sync
   const guestTasks = readGuestTasks();
   if (!guestTasks.length) return true;
 
   const userId = syncUserId;
-  const { error } = await cloud
-    .from("todos")
-    .upsert(guestTasks.map(toRow), { onConflict: "id", ignoreDuplicates: true });
+  const rows = guestTasks.map(toRow);
+  const options = { onConflict: "id", ignoreDuplicates: true };
+  let { error } = await cloud.from("todos").upsert(rows, options);
+  let overLimit = [];
+  if (error && isLimitError(error)) {
+    // Only room for some: add them one at a time until the account is full
+    overLimit = await upsertEach(rows, options);
+    if (!overLimit) return false;
+    error = null;
+  }
   if (error || syncUserId !== userId) return false;
 
-  clearGuestTasks();
-  const n = guestTasks.length;
-  showToast(`Added ${n} task${n === 1 ? "" : "s"} from this device to your account`);
+  const added = guestTasks.length - overLimit.length;
+  if (overLimit.length) {
+    writeGuestTasks(guestTasks.filter((t) => overLimit.includes(t.id)));
+    guestTasksDidntFit = true;
+    showToast(
+      `Added ${added} of ${guestTasks.length} tasks from this device. The rest didn't fit ` +
+        `(${TASK_LIMIT.toLocaleString()} tasks max) and stay here in guest mode.`,
+      "warning"
+    );
+  } else {
+    clearGuestTasks();
+    showToast(`Added ${added} task${added === 1 ? "" : "s"} from this device to your account`);
+  }
   return true;
 }
 
