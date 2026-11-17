@@ -406,6 +406,26 @@ async function signOutOfCloud() {
   if (error) forgetSignInLocally();
 }
 
+// Deletes the signed-in account and all its tasks (the database's
+// delete_my_account function), then signs out on this device. Your other
+// devices are signed out too, the next time they check in. Returns { error }
+// if it couldn't be done (for example when offline).
+async function deleteAccount() {
+  if (!cloud) return { error: new Error("Supabase is unavailable") };
+  const { error } = await cloud.rpc("delete_my_account");
+  if (error) return { error };
+
+  // The account is gone: stop syncing, and forget this device's copy of its tasks
+  stopCloudSync();
+  unsynced.saved.clear();
+  unsynced.deleted.clear();
+  clearCloudCache();
+
+  const { error: signOutError } = await cloud.auth.signOut({ scope: "local" });
+  if (signOutError) forgetSignInLocally();
+  return { error: null };
+}
+
 // Tell the page who's signed in, then start or stop syncing: once now, and
 // again whenever it changes
 if (cloud) {

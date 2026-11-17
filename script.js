@@ -1619,6 +1619,103 @@ signOutBtn.addEventListener("click", async () => {
   // sync.js then reports that nobody's signed in, which brings back the sign-in page
 });
 
+// ----- Delete account -----
+// A popup where you have to type "delete" before the button works. sync.js
+// does the deleting, then signs you out, which brings back the sign-in page.
+
+const deleteAccountBtn = document.getElementById("delete-account-btn");
+const deleteDialog = document.getElementById("delete-dialog");
+const deleteForm = document.getElementById("delete-form");
+const deleteDesc = document.getElementById("delete-desc");
+const deleteInput = document.getElementById("delete-input");
+const deleteError = document.getElementById("delete-error");
+const deleteCancel = document.getElementById("delete-cancel");
+const deleteConfirm = document.getElementById("delete-confirm");
+
+const CONFIRM_WORD = "delete";
+const DIALOG_CLOSE_MS = 200; // matches dialog-out in style.css
+let deletingAccount = false;
+let dialogCloseTimer = null;
+
+// Capitals and stray spaces are fine (phones like to capitalise the first letter)
+const confirmWordTyped = () => deleteInput.value.trim().toLowerCase() === CONFIRM_WORD;
+
+function openDeleteDialog() {
+  closeAccountMenu();
+  clearTimeout(dialogCloseTimer);
+  deleteDialog.classList.remove("closing");
+
+  const n = tasks.length;
+  deleteDesc.textContent = n
+    ? `This permanently deletes your account and all ${n} task${n === 1 ? "" : "s"} in it, on every device. It can't be undone.`
+    : "This permanently deletes your account on every device. It can't be undone.";
+  deleteInput.value = "";
+  deleteConfirm.disabled = true;
+  deleteError.hidden = true;
+
+  deleteDialog.showModal();
+  deleteInput.focus();
+}
+
+// Plays the closing animation, then closes (not while deleting is under way)
+function closeDeleteDialog() {
+  if (deletingAccount || !deleteDialog.open) return;
+  if (reduceMotion.matches) {
+    deleteDialog.close();
+    return;
+  }
+  deleteDialog.classList.add("closing");
+  dialogCloseTimer = setTimeout(() => {
+    deleteDialog.classList.remove("closing");
+    deleteDialog.close();
+  }, DIALOG_CLOSE_MS);
+}
+
+function setDeleting(on) {
+  deletingAccount = on;
+  deleteConfirm.classList.toggle("working", on);
+  deleteConfirm.setAttribute("aria-busy", String(on));
+  deleteInput.disabled = on;
+  deleteCancel.disabled = on;
+}
+
+deleteAccountBtn.addEventListener("click", openDeleteDialog);
+deleteCancel.addEventListener("click", closeDeleteDialog);
+
+// Escape key: close with the animation, rather than instantly
+deleteDialog.addEventListener("cancel", (e) => {
+  e.preventDefault();
+  closeDeleteDialog();
+});
+
+// Clicking the dimmed background outside the popup closes it too
+deleteDialog.addEventListener("click", (e) => {
+  if (e.target === deleteDialog) closeDeleteDialog();
+});
+
+deleteInput.addEventListener("input", () => {
+  deleteConfirm.disabled = !confirmWordTyped();
+  deleteError.hidden = true;
+});
+
+deleteForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (deletingAccount || !confirmWordTyped()) return;
+
+  setDeleting(true);
+  await syncLoaded;
+  const result = typeof deleteAccount === "function" ? await deleteAccount() : { error: true };
+  setDeleting(false);
+
+  if (result.error) {
+    deleteError.textContent = "Couldn't delete your account. Check your connection and try again.";
+    deleteError.hidden = false;
+    return;
+  }
+  closeDeleteDialog();
+  showToast("Your account and all its tasks were deleted");
+});
+
 // "Jane Doe" -> "JD", "jane@gmail.com" -> "J"
 function initialsOf(text) {
   const words = text.trim().split(/\s+/).filter(Boolean).slice(0, 2);

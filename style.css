@@ -1924,6 +1924,198 @@ select {
   background: var(--toggle-hover);
 }
 
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.menu-item.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* ----- Delete-account popup ----- */
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  animation: dialog-in 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: backdrop-in 0.25s ease;
+}
+
+/* Closing: script.js adds this, waits for the animation, then closes it */
+.confirm-dialog.closing {
+  animation: dialog-out 0.2s ease forwards;
+}
+
+.confirm-dialog.closing::backdrop {
+  animation: backdrop-out 0.2s ease forwards;
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+@keyframes dialog-out {
+  to { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+}
+
+@keyframes backdrop-out {
+  to { opacity: 0; }
+}
+
+.confirm-body {
+  padding: 24px;
+}
+
+.confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 14px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 50%;
+}
+
+.confirm-dialog h2 {
+  margin-bottom: 8px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.confirm-text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.confirm-label {
+  display: block;
+  margin: 18px 0 6px;
+  font-size: 0.9rem;
+}
+
+.confirm-label strong {
+  color: var(--danger);
+}
+
+.confirm-input {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.confirm-input:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+
+.confirm-error {
+  margin-top: 10px;
+  font-size: 0.88rem;
+  color: var(--danger);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn-secondary,
+.btn-danger {
+  height: 42px;
+  padding: 0 18px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn-secondary {
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--border);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn-secondary:hover {
+  background: var(--toggle-hover);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Faded until "delete" is typed, then it lights up */
+.btn-danger {
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: #dc2626;
+  border: none;
+  transition: background 0.2s, opacity 0.25s, box-shadow 0.25s;
+}
+
+.btn-danger:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* While deleting: "Deleting…" with a spinner */
+.btn-danger.working {
+  cursor: default;
+}
+
+.btn-danger.working .idle {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.btn-danger.working .busy {
+  opacity: 1;
+  transform: none;
+}
+
+.btn-danger .spinner {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+}
+
 @media (max-width: 640px) {
   .signin-card {
     padding: 40px 20px 26px;
@@ -1954,8 +2146,14 @@ select {
 
   .btn-guest:hover,
   .signin-pill:hover,
-  .menu-item:hover {
+  .menu-item:hover,
+  .menu-item.danger:hover,
+  .btn-secondary:hover {
     background: none;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #dc2626;
   }
 
   .avatar-btn:hover {
@@ -1986,6 +2184,13 @@ select {
   .account-menu,
   .avatar-img {
     transition: none;
+  }
+
+  .confirm-dialog,
+  .confirm-dialog::backdrop,
+  .confirm-dialog.closing,
+  .confirm-dialog.closing::backdrop {
+    animation: none;
   }
 }
 

@@ -120,6 +120,7 @@
             <div class="menu-status"><span class="status-dot"></span><span id="sync-label"></span></div>
             <div class="menu-sep"></div>
             <button type="button" id="sign-out-btn" class="menu-item">Sign out</button>
+            <button type="button" id="delete-account-btn" class="menu-item danger">Delete account</button>
           </div>
         </div>
 
@@ -200,6 +201,27 @@
     </div>
   </aside>
   </div>
+
+  <!-- Delete-account confirmation: the button only works once "delete" is typed -->
+  <dialog id="delete-dialog" class="confirm-dialog" aria-labelledby="delete-title" aria-describedby="delete-desc">
+    <form id="delete-form" class="confirm-body" novalidate>
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <h2 id="delete-title">Delete your account?</h2>
+      <p id="delete-desc" class="confirm-text"></p>
+
+      <label class="confirm-label" for="delete-input">Type <strong>delete</strong> to confirm</label>
+      <input id="delete-input" class="confirm-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p id="delete-error" class="confirm-error" role="alert" hidden></p>
+
+      <div class="confirm-actions">
+        <button type="button" id="delete-cancel" class="btn-secondary">Cancel</button>
+        <button type="submit" id="delete-confirm" class="btn-danger" disabled>
+          <span class="btn-face idle">Delete account</span>
+          <span class="btn-face busy" aria-hidden="true"><span class="spinner"></span>Deleting…</span>
+        </button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Short messages that slide up from the bottom (e.g. after signing in) -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
